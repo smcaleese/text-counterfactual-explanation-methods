@@ -1,0 +1,16 @@
+Attempted change for 10 texts.
+Changed sentiment for 9 texts.
+Average token match frac among changed texts = 0.97
+Average perplexity for original input texts =  1.111
+Average perplexity for generated counterfactuals = -1.0
+Average BLEU for generated counterfactuals = 0.0
+Avg. setup time    : 0.0
+Avg. gradient time : 0.0
+Avg. opt time      : 4.862
+Avg. subst. time   : 14.129
+Avg. greedy time   : 17.33
+Avg. total time    : 36.322
+Total time         : 363.219
+Avg. evals         : 7.278
+{15, 5, 30, {36.32195, 727.8, 1.11111, -1.0, -0.1, 0.0, 0.96965, 0.9}, "imdb_logits_SVs"}
+[15, 5, 30, [36.32195, 727.8, 1.11111, -1.0, -0.1, 0.0, 0.96965, 0.9], "imdb_logits_SVs"]
