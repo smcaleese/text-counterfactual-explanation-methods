@@ -47,7 +47,7 @@ args = parser.parse_args()
 # data between gpu devices, which is slow.
 # As such, running on a non-zero device requires we invoke the method like so:
 # CUDA_VISIBLE_DEVICES=n python3 closs.py [arguments]
-gpu_device_num = 0#args.gpu_device
+gpu_device_num = 0 #args.gpu_device
 use_cpu = True
 use_imdb = False
 use_imdb_long = False
@@ -152,7 +152,8 @@ retrain_data = []
 if use_imdb or use_imdb_long:
     if use_imdb:
         # same_texts_as_baselines = pd.read_csv("roberta-base-imdb-short-1000-log.csv")
-        same_texts_as_baselines = pd.read_csv("roberta-base-imdb-short-10-log.csv")
+        # same_texts_as_baselines = pd.read_csv("roberta-base-imdb-short-10-log.csv")
+        same_texts_as_baselines = pd.read_csv("../input/imdb-input.csv")
     else:
         same_texts_as_baselines = pd.read_csv("bert-base-uncased-long-imdb-1000-log.csv")
     
@@ -219,8 +220,14 @@ print("saliency_method=", args.saliency_method)
 print("GPU device num:", gpu_device_num)
 
 
+gpt2_model = transformers.GPT2LMHeadModel.from_pretrained("gpt2")
+gpt2_model.cuda(gpu_device_num)
+gpt2_model.eval()
+gpt2_tokenizer = transformers.GPT2Tokenizer.from_pretrained("gpt2")
+
+# Load pre-trained model
 if not test_acc:
     # same_texts_as_baselines_list is just a list of sentences
-    evaluate_list(same_texts_as_baselines_list, sentiment_model, LM_model, args.retrain_epochs, 1, tokenizer, hs_lr=0.005, group_tokens=False, root_reg=['squared'], l=[1], extra_lasso=False, max_opt_steps=1, n_samples=args.K, topk=args.K,  substitutions_after_loc=0.15, substitutions_after_SVs=10, min_substitutions_after_SVs=50, use_hard_scoring=True, min_substitutions=15, use_random_n_SV_substitutions=False, min_run_sample_size=4, use_grad_for_loc=True, max_SV_loc_evals=0, slowly_focus_SV_samples=True, min_SV_samples_per_sub=args.w, SV_samples_per_eval_after_location=0.5, logit_matix_source=lms, use_SVs=True, use_exact=False, n_branches=args.beamwidth, tree_depth=0.15, beam_width=args.beamwidth, prob_left_early_stopping=0.499999, substitution_gen_method=substitution_gen_method, substitution_evaluation_method=substitution_evaluation_method, saliency_method=args.saliency_method, empty_cache_every_text=True, logname='closs_log_' + arglist + '__' + runid, data_len_str=args.dataset)
+    evaluate_list(same_texts_as_baselines_list, sentiment_model, LM_model, gpt2_model, gpt2_tokenizer, args.retrain_epochs, 1, tokenizer, hs_lr=0.005, group_tokens=False, root_reg=['squared'], l=[1], extra_lasso=False, max_opt_steps=1, n_samples=args.K, topk=args.K,  substitutions_after_loc=0.15, substitutions_after_SVs=10, min_substitutions_after_SVs=50, use_hard_scoring=True, min_substitutions=15, use_random_n_SV_substitutions=False, min_run_sample_size=4, use_grad_for_loc=True, max_SV_loc_evals=0, slowly_focus_SV_samples=True, min_SV_samples_per_sub=args.w, SV_samples_per_eval_after_location=0.5, logit_matix_source=lms, use_SVs=True, use_exact=False, n_branches=args.beamwidth, tree_depth=0.15, beam_width=args.beamwidth, prob_left_early_stopping=0.499999, substitution_gen_method=substitution_gen_method, substitution_evaluation_method=substitution_evaluation_method, saliency_method=args.saliency_method, empty_cache_every_text=True, logname='closs_log_' + arglist + '__' + runid, data_len_str=args.dataset)
 
 print('beamwidth:', args.beamwidth, 'w:', args.w, 'K:', args.K, 'lognotes:', runid)

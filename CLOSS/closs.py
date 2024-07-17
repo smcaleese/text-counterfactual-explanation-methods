@@ -422,7 +422,14 @@ def generate_flip(sentiment_model, LM_model, tokenizer, tokens, text, layer, hs_
     return sameness_list, found_flip, frac_tokens_same, -1, -1, tokenizer.convert_tokens_to_string(best_candidate_tokens), tokens, best_candidate_tokens, [0, 0, opt_end_time - opt_start_time, substitution_end_time - substitution_start_time, beam_end_time - beam_start_time], model_evals
 
 
-def evaluate_list(text_list, sentiment_model, LM_model, n_epochs, attempts, tokenizer, hs_lr, group_tokens, root_reg, l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_SVs, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, empty_cache_every_text, logname, data_len_str, gpu_device_num=0):
+def calculate_perplexity(model, tokenizer, sentence):
+    tokenize_input = tokenizer.encode(sentence, return_tensors="pt")
+    loss = model(tokenize_input, labels=tokenize_input).loss
+    perplexity = torch.exp(loss).item()
+    return perplexity
+
+
+def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokenizer, n_epochs, attempts, tokenizer, hs_lr, group_tokens, root_reg, l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_SVs, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, empty_cache_every_text, logname, data_len_str, gpu_device_num=0):
 
     result_log = []
     all_results = []
@@ -443,7 +450,7 @@ def evaluate_list(text_list, sentiment_model, LM_model, n_epochs, attempts, toke
     for text_loc in tqdm(range(n_texts)):
         text = text_list[text_loc]
         try:
-            initial_perplexity = 1#perplexity(text)
+            initial_perplexity = calculate_perplexity(gpt2_model, gpt2_tokenizer, text)
             total_initial_perplexity += initial_perplexity
         except:
             print("Error on", text)
@@ -456,9 +463,8 @@ def evaluate_list(text_list, sentiment_model, LM_model, n_epochs, attempts, toke
         id_list = tokenizer.encode(text, add_special_tokens=True, truncation=True)
         tokens = tokenizer.convert_ids_to_tokens(id_list)
 
-        #print("Initial perplexity   :", round(initial_perplexity, 3))
+        print("Initial perplexity   :", round(initial_perplexity, 3))
         initial_PP = probability_positive(tokenizer, sentiment_model, tokens, gpu_device_num)
-        print("Initial prob positive:", round(initial_PP, 5))
         results_list = []
         tmp_opt_time = tmp_substitution_time = tmp_greedy_time = tmp_setup_time = tmp_gradient_time = 0
         for i in range(attempts):
@@ -512,39 +518,38 @@ def evaluate_list(text_list, sentiment_model, LM_model, n_epochs, attempts, toke
         results_list = sorted(results_list, key=lambda x: x[2] * x[1], reverse=True)
         all_results.append(results_list[0])
         found_flip = results_list[0][1]
-        final_perplexity = -1#perplexity(tokenizer.convert_tokens_to_string(new_tokens[1:-1]))
-                             # more efficient to compute perplexity later; no need to keep GPT model in memory
+        new_perplexity = calculate_perplexity(gpt2_model, gpt2_tokenizer, new_text)
         final_bleu = results_list[0][5]
         if found_flip:
             total_final_bleu += final_bleu
-            total_final_perplexity += final_perplexity
+            total_final_perplexity += new_perplexity
             total_flips_found += 1
         
         if initial_PP > 0.5 and new_PP < 0.5:
             CM_flips[0] += 1
             CM_bleu[0] += bleu
-            CM_f_perp[0] += final_perplexity
+            CM_f_perp[0] += new_perplexity
             CM_i_perp[0] += initial_perplexity
             CM_change[0] += frac_tokens_same
             CM_evals[0] += model_evals + 2
         if initial_PP < 0.5 and new_PP > 0.5:
             CM_flips[1] += 1
             CM_bleu[1] += bleu
-            CM_f_perp[1] += final_perplexity
+            CM_f_perp[1] += new_perplexity
             CM_i_perp[1] += initial_perplexity
             CM_change[1] += frac_tokens_same
             CM_evals[1] += model_evals + 2
         if initial_PP < 0.5 and not found_flip:
             CM_flips[2] += 1
             CM_bleu[2] += bleu
-            CM_f_perp[2] += final_perplexity
+            CM_f_perp[2] += new_perplexity
             CM_i_perp[2] += initial_perplexity
             CM_change[2] += frac_tokens_same
             CM_evals[2] += model_evals + 2
         if initial_PP > 0.5 and not found_flip:
             CM_flips[3] += 1
             CM_bleu[3] += bleu
-            CM_f_perp[3] += final_perplexity
+            CM_f_perp[3] += new_perplexity
             CM_i_perp[3] += initial_perplexity
             CM_change[3] += frac_tokens_same
             CM_evals[3] += model_evals + 2
@@ -570,8 +575,7 @@ def evaluate_list(text_list, sentiment_model, LM_model, n_epochs, attempts, toke
         print(CM_change_print)
         print(CM_evals_print)
         
-        print("Changed perplexity   :", round(final_perplexity, 3))
-        print("Changed BLEU score   :", round(final_bleu, 3))
+        print("New perplexity   :", round(new_perplexity, 3))
 
 
         print("Flip found:", found_flip)
@@ -581,7 +585,12 @@ def evaluate_list(text_list, sentiment_model, LM_model, n_epochs, attempts, toke
         print("flips found / texts tried: " + str(total_flips_found) + " / " + str(texts_tried) + " : " + str(round(total_flips_found / texts_tried, 4)))
         print('\n\n')
         
-        result_log.append([text, new_text, n_tokens, tmp_gradient_time, tmp_opt_time, tmp_substitution_time, tmp_greedy_time, model_evals + 2, bleu, frac_tokens_same, frac_words_same, found_flip, initial_PP, new_PP, first_flip_loc, last_flip_loc])
+        # output_df = pd.DataFrame(result_log, columns=["original_text", "original_output", "counterfactual_text", "counterfactual_output", "flipped_label", "frac_tokens_same", "counterfactual_perplexity"])
+        # result_log.append([text, new_text, n_tokens, tmp_gradient_time, tmp_opt_time, tmp_substitution_time, tmp_greedy_time, model_evals + 2, bleu, frac_tokens_same, frac_words_same, found_flip, initial_PP, new_PP, first_flip_loc, last_flip_loc])
+        # get the original_output, counterfactual_output, and counterfactual_perplexity:
+        # initial_PP, new_PP
+        # note: frac_tokens_same is calculated for each sentence
+        result_log.append([text, initial_PP, initial_perplexity, new_text, new_PP, new_perplexity, found_flip, frac_tokens_same])
         
 
     print("\n####################################################################################################################\n")
@@ -643,8 +652,10 @@ def evaluate_list(text_list, sentiment_model, LM_model, n_epochs, attempts, toke
     print(output_string)
     print(python_string)
 
-    output_df = pd.DataFrame(result_log, columns=["Original_text", "New_text", "N_tokens", "Grad_time", "Opt_time", "Subst_time", "Beamsearch_time", "N_evals", "Bleu", "Frac_tokens_same", "Frac_words_same", "Found_flip", "Original_prob_positive", "New_prob_positive", "First_flip_loc", "Last_flip_loc"])
-    output_df.to_csv("tsv_logs/" + logname + ".tsv", sep='\t')
+    # output_df = pd.DataFrame(result_log, columns=["Original_text", "New_text", "N_tokens", "Grad_time", "Opt_time", "Subst_time", "Beamsearch_time", "N_evals", "Bleu", "Frac_tokens_same", "Frac_words_same", "Found_flip", "Original_prob_positive", "New_prob_positive", "First_flip_loc", "Last_flip_loc"])
+    output_df = pd.DataFrame(result_log, columns=["original_text", "original_output", "counterfactual_text", "counterfactual_output", "flipped_label", "frac_tokens_same", "counterfactual_perplexity"])
+    # output_df.to_csv("tsv_logs/" + logname + ".tsv", sep='\t')
+    output_df.to_csv("../output/closs-output.csv")
     
     f.write("\n" + output_string + "\n" + python_string + '\n')
     f.close()
