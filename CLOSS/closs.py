@@ -15,7 +15,6 @@ import copy
 import time
 import random
 import torch.nn.functional as F
-from nltk.translate.bleu_score import sentence_bleu
 #from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from helpers import *
 
@@ -450,11 +449,10 @@ def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokeniz
     result_log = []
     all_results = []
     all_embeddings = []
-    setup_time = gradient_time = opt_time = substitution_time = greedy_time = total_attempts = texts_tried = total_final_perplexity = total_final_bleu = total_initial_perplexity = total_flips_found = 0
+    setup_time = gradient_time = opt_time = substitution_time = greedy_time = total_attempts = texts_tried = total_final_perplexity = total_initial_perplexity = total_flips_found = 0
     n_texts = len(text_list)
     #            p2n n2p n2n p2p
     CM_flips  = [0,  0,  0,  0]
-    CM_bleu   = [0,  0,  0,  0]
     CM_f_perp = [0,  0,  0,  0]
     CM_i_perp = [0,  0,  0,  0]
     CM_change = [0,  0,  0,  0]
@@ -494,7 +492,6 @@ def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokeniz
             tmp_substitution_time += all_times[3]
             tmp_greedy_time += all_times[4]
             
-            # bleu = sentence_bleu([old_tokens], new_tokens)
             initial_PP = probability_positive(tokenizer, sentiment_model, old_tokens, gpu_device_num)
             new_PP = probability_positive(tokenizer, sentiment_model, new_tokens, gpu_device_num)
 
@@ -502,7 +499,7 @@ def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokeniz
                 flip_found = True
             else:
                 flip_found = False
-            results_list.append([change_indexes, found_flip, frac_tokens_same, [embedding, initial_PP], new_text, bleu])
+            results_list.append([change_indexes, found_flip, frac_tokens_same, [embedding, initial_PP], new_text])
 
             total_attempts += 1
             if found_flip and frac_tokens_same > 0.9:
@@ -532,49 +529,41 @@ def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokeniz
         results_list = sorted(results_list, key=lambda x: x[2] * x[1], reverse=True)
         all_results.append(results_list[0])
         found_flip = results_list[0][1]
-        final_bleu = results_list[0][5]
         if found_flip:
-            total_final_bleu += final_bleu
             total_final_perplexity += new_perplexity
             total_flips_found += 1
         
         if initial_PP > 0.5 and new_PP < 0.5:
             CM_flips[0] += 1
-            CM_bleu[0] += bleu
             CM_f_perp[0] += new_perplexity
             CM_i_perp[0] += initial_perplexity
             CM_change[0] += frac_tokens_same
             CM_evals[0] += model_evals + 2
         if initial_PP < 0.5 and new_PP > 0.5:
             CM_flips[1] += 1
-            CM_bleu[1] += bleu
             CM_f_perp[1] += new_perplexity
             CM_i_perp[1] += initial_perplexity
             CM_change[1] += frac_tokens_same
             CM_evals[1] += model_evals + 2
         if initial_PP < 0.5 and not found_flip:
             CM_flips[2] += 1
-            CM_bleu[2] += bleu
             CM_f_perp[2] += new_perplexity
             CM_i_perp[2] += initial_perplexity
             CM_change[2] += frac_tokens_same
             CM_evals[2] += model_evals + 2
         if initial_PP > 0.5 and not found_flip:
             CM_flips[3] += 1
-            CM_bleu[3] += bleu
             CM_f_perp[3] += new_perplexity
             CM_i_perp[3] += initial_perplexity
             CM_change[3] += frac_tokens_same
             CM_evals[3] += model_evals + 2
         
-        CM_bleu_print   = [0,  0,  0,  0]
         CM_f_perp_print = [0,  0,  0,  0]
         CM_i_perp_print = [0,  0,  0,  0]
         CM_change_print = [0,  0,  0,  0]
         CM_evals_print  = [0,  0,  0,  0]
         
         for i in range(4):
-            CM_bleu_print[i] = round(CM_bleu[i] / max(1, CM_flips[i]), 3)
             CM_f_perp_print[i] = round(CM_f_perp[i] / max(1, CM_flips[i]), 3)
             CM_i_perp_print[i] = round(CM_i_perp[i] / max(1, CM_flips[i]), 3)
             CM_change_print[i] = round(CM_change[i] / max(1, CM_flips[i]), 3)
@@ -582,7 +571,6 @@ def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokeniz
         
         print("Results by flip type:")
         print(CM_flips)
-        print(CM_bleu_print)
         print(CM_f_perp_print)
         print(CM_i_perp_print)
         print(CM_change_print)
@@ -597,7 +585,6 @@ def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokeniz
         print("Flip found:", found_flip)
         print()
         print("Total perplexity     :", round(total_final_perplexity, 3))
-        print("Total bleu           :", round(total_final_bleu, 3))
         print("flips found / texts tried: " + str(total_flips_found) + " / " + str(texts_tried) + " : " + str(round(total_flips_found / texts_tried, 4)))
         print('\n\n')
         
@@ -616,19 +603,16 @@ def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokeniz
 
     avg_sameness = 0
     n_texts_changed = 0
-    total_bleu = 0
     for r in all_results:
         if r[1]:
             all_embeddings.append(r[3])
             n_texts_changed += 1
             avg_sameness += r[2]
-            total_bleu += r[5]
     print("Attempted change for", texts_tried, "texts.")
     print("Changed sentiment for", n_texts_changed, "texts.")
     print("Average token match frac among changed texts =", round(avg_sameness / n_texts_changed, 3))
     print("Average perplexity for original input texts = ", round(total_initial_perplexity / n_texts_changed, 3))
     print("Average perplexity for generated counterfactuals =", round(total_final_perplexity / n_texts_changed, 3))
-    print("Average BLEU for generated counterfactuals =", round(total_bleu / n_texts_changed, 3))
     #for r in all_results:
     #    print(r[:2])
     total_time = setup_time + gradient_time + opt_time + substitution_time + greedy_time
@@ -649,7 +633,6 @@ def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokeniz
     f.write("\nAverage token match frac among changed texts = " + str(round(avg_sameness / n_texts_changed, 3)))
     f.write("\nAverage perplexity for original input texts =  " + str(round(total_initial_perplexity / n_texts_changed, 3)))
     f.write("\nAverage perplexity for generated counterfactuals = " + str(round(total_final_perplexity / n_texts_changed, 3)))
-    f.write("\nAverage BLEU for generated counterfactuals = " + str(round(total_bleu / n_texts_changed, 3)))
     #for r in all_results:
     #    print(r[:2])
     f.write("\nAvg. setup time    : " + str(round(setup_time / texts_tried, 3)))
@@ -661,7 +644,7 @@ def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokeniz
     f.write("\nTotal time         : " + str(round(total_time, 3)))
     f.write("\nAvg. evals         : " + str(round(tot_e / 1000, 3)))
     
-    output_string = "{" + str(beam_width) + ", " + str(min_SV_samples_per_sub) + ", " + str(topk) + ", {" + str(round(total_time / texts_tried, 5)) + ", " + str(round(tot_e / texts_tried, 5)) + ", " + str(round(total_initial_perplexity / n_texts_changed, 5)) + ", " + str(round(total_final_perplexity / n_texts_changed, 5)) + ", " + str(round((total_final_perplexity / total_initial_perplexity) / n_texts_changed, 5)) + ", " + str(round(total_bleu / n_texts_changed, 5)) + ", " + str(round(avg_sameness / n_texts_changed, 5)) + ", " + str(round(n_texts_changed / texts_tried, 5))  + "}, \"" + data_len_str + "_" + substitution_gen_method + "_" + substitution_evaluation_method + "\"}"
+    output_string = "{" + str(beam_width) + ", " + str(min_SV_samples_per_sub) + ", " + str(topk) + ", {" + str(round(total_time / texts_tried, 5)) + ", " + str(round(tot_e / texts_tried, 5)) + ", " + str(round(total_initial_perplexity / n_texts_changed, 5)) + ", " + str(round(total_final_perplexity / n_texts_changed, 5)) + ", " + str(round((total_final_perplexity / total_initial_perplexity) / n_texts_changed, 5)) + ", " + str(round(avg_sameness / n_texts_changed, 5)) + ", " + str(round(n_texts_changed / texts_tried, 5))  + "}, \"" + data_len_str + "_" + substitution_gen_method + "_" + substitution_evaluation_method + "\"}"
             
     python_string = output_string.replace('{', '[').replace('}', ']')
     
