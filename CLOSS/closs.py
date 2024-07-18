@@ -594,7 +594,6 @@ def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokeniz
         # initial_PP, new_PP
         # note: frac_tokens_same is calculated for each sentence
         result_log.append([old_text, initial_PP, initial_perplexity, new_text, new_PP, new_perplexity, found_flip, frac_tokens_same])
-        
 
     print("\n####################################################################################################################\n")
     print("\n####################################################################################################################\n")
