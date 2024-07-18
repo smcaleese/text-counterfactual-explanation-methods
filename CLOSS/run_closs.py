@@ -223,6 +223,7 @@ print("GPU device num:", gpu_device_num)
 gpt2_model = transformers.GPT2LMHeadModel.from_pretrained("gpt2")
 gpt2_model.cuda(gpu_device_num)
 gpt2_model.eval()
+
 gpt2_tokenizer = transformers.GPT2Tokenizer.from_pretrained("gpt2")
 
 # Load pre-trained model
