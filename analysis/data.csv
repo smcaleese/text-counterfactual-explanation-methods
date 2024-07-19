@@ -1,0 +1,3 @@
+method_name,label_flip_score,mean_fraction_tokens_same,mean_inverted_counterfactual_perplexity
+closs,0.9,0.98,1.0
+hotflip,0.8,0.961,0.0

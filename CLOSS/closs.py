@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from helpers import *
 
 
-def generate_flip(sentiment_model, LM_model, tokenizer, tokens, text, layer, hs_lr, group_tokens, root_reg,  l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_SVs, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, gpu_device_num):
+def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tokens, text, layer, hs_lr, group_tokens, root_reg,  l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_SVs, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, gpu_device_num):
 
     start_time = time.time() ###
     model_evals = 0
@@ -155,6 +155,7 @@ def generate_flip(sentiment_model, LM_model, tokenizer, tokens, text, layer, hs_
     opt_end_time = time.time()    
     substitution_start_time = time.time()
     extra_evals = 0
+
     
     # Run HotFlip:
     if substitution_evaluation_method in ['hotflip_only']:
@@ -444,7 +445,7 @@ def format_output_text(text):
     return sentence
 
 
-def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokenizer, n_epochs, attempts, tokenizer, hs_lr, group_tokens, root_reg, l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_SVs, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, empty_cache_every_text, logname, data_len_str, gpu_device_num=0):
+def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokenizer, all_word_embeddings, n_epochs, attempts, tokenizer, hs_lr, group_tokens, root_reg, l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_SVs, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, empty_cache_every_text, logname, data_len_str, gpu_device_num=0):
 
     result_log = []
     all_results = []
@@ -475,7 +476,7 @@ def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokeniz
         for i in range(attempts):
             
             # generate the flip:
-            change_indexes, found_flip, frac_tokens_same, frac_words_same, embedding, new_text, old_tokens, new_tokens, all_times, model_evals = generate_flip(sentiment_model, LM_model, tokenizer, tokens, text, 0, hs_lr, group_tokens, root_reg, l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_SVs, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, gpu_device_num)
+            change_indexes, found_flip, frac_tokens_same, frac_words_same, embedding, new_text, old_tokens, new_tokens, all_times, model_evals = generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tokens, text, 0, hs_lr, group_tokens, root_reg, l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_SVs, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, gpu_device_num)
             old_text = format_output_text(tokenizer.convert_tokens_to_string(old_tokens))
             new_text = format_output_text(tokenizer.convert_tokens_to_string(new_tokens))
 
