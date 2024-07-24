@@ -261,11 +261,12 @@ class Polyjuice(object):
                 is_vaild = pp.pr_sent < perplex_thred and pp.pr_phrase < perplex_thred
             if is_vaild and is_filter_code:
                 ctrl = self.detect_ctrl_code(orig_doc, generated_doc, eop)
-                is_vaild = is_vaild and ctrl is not None and ctrl in ctrl_codes
+                # is_vaild = is_vaild and ctrl is not None and ctrl in ctrl_codes
+                # is_vaild = is_vaild and ctrl is not None
             if is_vaild:
                 validated_set.append(generated)
-                #validated_changes.append(Munch(
-                #    text=generated, doc=generated_doc, meta=meta, perplex=pp))
+            if ctrl in ctrl_codes:
+                break
         if num_perturbations is None:
             num_perturbations = 1000
         sampled = np.random.choice(validated_set,

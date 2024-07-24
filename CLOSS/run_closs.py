@@ -25,7 +25,7 @@ from helpers import *
 parser = argparse.ArgumentParser(description='Generates text counterfactuals using the CLOSS method.')
 
 
-parser.add_argument("--dataset", help="Target dataset; options are \'qnli\', \'imdb\', \'imdb_long\'.")
+parser.add_argument("--dataset", help="Target dataset; options are \'sst_2\', \'qnli\', \'imdb\', \'imdb_long\'.")
 parser.add_argument("--beamwidth", help="Beam width for beam search.", type=int)
 parser.add_argument("--w", help="Target number of evaluations per substitution.", type=int)
 parser.add_argument("--K", help="Maximum number of substitutions sampled per salient location.", type=int)
@@ -49,11 +49,14 @@ args = parser.parse_args()
 # CUDA_VISIBLE_DEVICES=n python3 closs.py [arguments]
 gpu_device_num = 0 #args.gpu_device
 use_cpu = True
+use_sst = False
 use_imdb = False
 use_imdb_long = False
 use_qnli = False
 
-if args.dataset == 'imdb':
+if args.dataset == 'sst_2':
+    use_sst = True
+elif args.dataset == 'imdb':
     use_imdb = True
 elif args.dataset == 'qnli':
     use_qnli = True
@@ -134,7 +137,10 @@ if use_roberta:
         LM_model = sentiment_model
 
 elif use_bert:
-    if use_imdb or use_imdb_long:
+    if use_sst:
+        tokenizer = AutoTokenizer.from_pretrained("textattack/bert-base-uncased-SST-2")
+        sentiment_model = AutoModelForSequenceClassification.from_pretrained("textattack/bert-base-uncased-SST-2")
+    elif use_imdb or use_imdb_long:
         tokenizer = AutoTokenizer.from_pretrained("textattack/bert-base-uncased-imdb")
         sentiment_model = AutoModelForSequenceClassification.from_pretrained("textattack/bert-base-uncased-imdb")
     elif use_qnli:
@@ -149,10 +155,11 @@ elif use_bert:
 
 
 retrain_data = []
-if use_imdb or use_imdb_long:
+if use_sst:
+    same_texts_as_baselines = pd.read_csv("../input/sst-input.csv")
+    same_texts_as_baselines_list = process_dataframe(same_texts_as_baselines, sentiment_model, tokenizer, test_acc)
+elif use_imdb or use_imdb_long:
     if use_imdb:
-        # same_texts_as_baselines = pd.read_csv("roberta-base-imdb-short-1000-log.csv")
-        # same_texts_as_baselines = pd.read_csv("roberta-base-imdb-short-10-log.csv")
         same_texts_as_baselines = pd.read_csv("../input/imdb-input.csv")
     else:
         same_texts_as_baselines = pd.read_csv("bert-base-uncased-long-imdb-1000-log.csv")
@@ -160,8 +167,6 @@ if use_imdb or use_imdb_long:
     if lmh_data_source[:6] == 'texts:':
         retrain_data = process_dataframe(pd.read_csv("retrain_1000_data_different_from_roberta-base-imdb-short-1000-log.csv"), sentiment_model, tokenizer, test_acc)
     same_texts_as_baselines_list = process_dataframe(same_texts_as_baselines, sentiment_model, tokenizer, test_acc)
-
-
 elif use_qnli:
     same_texts_as_baselines = pd.read_csv("roberta-base-qnli-new-1000-textfooler-log.csv")
 
@@ -208,6 +213,7 @@ else:
     all_word_embeddings = None
 
 
+print("use_sst:", use_sst)
 print("use_imdb:", use_imdb)
 print("use_imdb_long:", use_imdb_long)
 print("use_qnli:", use_qnli)
@@ -229,6 +235,6 @@ gpt2_tokenizer = transformers.GPT2Tokenizer.from_pretrained("gpt2")
 # Load pre-trained model
 if not test_acc:
     # same_texts_as_baselines_list is just a list of sentences
-    evaluate_list(same_texts_as_baselines_list, sentiment_model, LM_model, gpt2_model, gpt2_tokenizer, all_word_embeddings, args.retrain_epochs, 1, tokenizer, hs_lr=0.005, group_tokens=False, root_reg=['squared'], l=[1], extra_lasso=False, max_opt_steps=1, n_samples=args.K, topk=args.K,  substitutions_after_loc=0.15, substitutions_after_SVs=10, min_substitutions_after_SVs=50, use_hard_scoring=True, min_substitutions=15, use_random_n_SV_substitutions=False, min_run_sample_size=4, use_grad_for_loc=True, max_SV_loc_evals=0, slowly_focus_SV_samples=True, min_SV_samples_per_sub=args.w, SV_samples_per_eval_after_location=0.5, logit_matix_source=lms, use_SVs=True, use_exact=False, n_branches=args.beamwidth, tree_depth=0.15, beam_width=args.beamwidth, prob_left_early_stopping=0.499999, substitution_gen_method=substitution_gen_method, substitution_evaluation_method=substitution_evaluation_method, saliency_method=args.saliency_method, empty_cache_every_text=True, logname='closs_log_' + arglist + '__' + runid, data_len_str=args.dataset)
+    generate_counterfactual(same_texts_as_baselines_list, sentiment_model, LM_model, gpt2_model, gpt2_tokenizer, all_word_embeddings, args.retrain_epochs, 1, tokenizer, hs_lr=0.005, group_tokens=False, root_reg=['squared'], l=[1], extra_lasso=False, max_opt_steps=1, n_samples=args.K, topk=args.K,  substitutions_after_loc=0.15, substitutions_after_SVs=10, min_substitutions_after_SVs=50, use_hard_scoring=True, min_substitutions=15, use_random_n_SV_substitutions=False, min_run_sample_size=4, use_grad_for_loc=True, max_SV_loc_evals=0, slowly_focus_SV_samples=True, min_SV_samples_per_sub=args.w, SV_samples_per_eval_after_location=0.5, logit_matix_source=lms, use_SVs=True, use_exact=False, n_branches=args.beamwidth, tree_depth=0.15, beam_width=args.beamwidth, prob_left_early_stopping=0.499999, substitution_gen_method=substitution_gen_method, substitution_evaluation_method=substitution_evaluation_method, saliency_method=args.saliency_method, empty_cache_every_text=True, logname='closs_log_' + arglist + '__' + runid, data_len_str=args.dataset)
 
 print('beamwidth:', args.beamwidth, 'w:', args.w, 'K:', args.K, 'lognotes:', runid)

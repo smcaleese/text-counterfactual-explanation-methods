@@ -16,24 +16,24 @@ import time
 import random
 import torch.nn.functional as F
 #from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from helpers import *
+from .helpers import *
 
 
-def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tokens, text, layer, hs_lr, group_tokens, root_reg,  l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_SVs, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, gpu_device_num):
+def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tokens, text, layer, hs_lr, group_tokens, root_reg,  l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, device):
 
     start_time = time.time() ###
     model_evals = 0
 
     loss_fct = torch.nn.CrossEntropyLoss()
-    ids = torch.tensor(tokenizer.convert_tokens_to_ids(tokens)).cuda(gpu_device_num).view(1,-1)
+    ids = torch.tensor(tokenizer.convert_tokens_to_ids(tokens)).to(device).view(1,-1)
     n_tokens = len(tokens)
     max_SV_evals = int(min_SV_samples_per_sub * topk / SV_samples_per_eval_after_location)
 #    bias = F.one_hot(ids, tokenizer.vocab_size)
     
-    hidden_state = get_embeddings(LM_model, ids, gpu_device_num).cuda(gpu_device_num)
+    hidden_state = get_embeddings(LM_model, ids, device).to(device)
     original_hidden_state = hidden_state.clone().detach()
     model_evals += 1
-    prob_pos = probability_positive(tokenizer, sentiment_model, tokens, gpu_device_num)
+    prob_pos = probability_positive(tokenizer, sentiment_model, tokens, device)
     found_flip = False
 #    restart = False
     if prob_pos > 0.5:
@@ -66,9 +66,9 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
             if substitution_gen_method == 'logits':
                 # We now perform a step of embedding optimization:
                 for i in range(0, max_opt_steps):
-                    outputs = onwards(candidate_hidden_state, layer, sentiment_model, gpu_device_num)
+                    outputs = onwards(candidate_hidden_state, layer, sentiment_model, device)
                     model_evals += 1
-                    loss = loss_fct(outputs, torch.tensor([flip_target]).cuda(gpu_device_num).long())
+                    loss = loss_fct(outputs, torch.tensor([flip_target]).to(device).long())
                     loss_root = 0
 
                     numerical_stability_tensor = 0.0000001 * (0.5 - torch.rand_like(candidate_hidden_state))
@@ -126,7 +126,7 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
             if substitution_gen_method == 'random':
                 sample_logits = torch.rand((n_tokens, tokenizer.vocab_size))
             else:
-                sample_logits = onwards_token_predict(candidate_hidden_state, layer, LM_model, forward_prediction_target, gpu_device_num)[0]
+                sample_logits = onwards_token_predict(candidate_hidden_state, layer, LM_model, forward_prediction_target)[0]
 
 
             if topk > 0:
@@ -159,27 +159,25 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
     
     # Run HotFlip:
     if substitution_evaluation_method in ['hotflip_only']:
-        best_candidate_tokens, extra_evals = hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, topk, flip_target, prob_pos, tokens, n_tokens, gpu_device_num)
+        best_candidate_tokens, extra_evals = hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, topk, flip_target, prob_pos, tokens, n_tokens, device)
         model_evals += extra_evals
         substitution_end_time = time.time()
         
     if substitution_evaluation_method in ['hotflip']:
-        best_candidate_tokens, extra_evals = hotflip_beamsearch_substitutions(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, flip_target, prob_pos, tokens, n_tokens, substitutions_dict, gpu_device_num)
+        best_candidate_tokens, extra_evals = hotflip_beamsearch_substitutions(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, flip_target, prob_pos, tokens, n_tokens, substitutions_dict, device)
         model_evals += extra_evals
         substitution_end_time = time.time()
-    print("Extra Evals:", extra_evals)
-    
     
     if substitution_evaluation_method in ['SVs', 'grad-only', 'grad_only']:
 
         # Find the most impactful locations in the original text to perform substitutions via gradients.
-        logit_grads, extra_evals = get_saliency(sentiment_model, tokenizer, prob_pos, flip_target, tokens, ids, saliency_method, loss_fct, gpu_device_num)
+        logit_grads, extra_evals = get_saliency(sentiment_model, tokenizer, prob_pos, flip_target, tokens, ids, saliency_method, loss_fct, device)
         model_evals += extra_evals
 
         with torch.no_grad():
             # Select the substitutions for the locations identified by the gradient step as being most important:
             if use_grad_for_loc:
-                print_token_importances(sentiment_model, logit_grads[0], tokens, n_tokens, "grad loc importances:", gpu_device_num)
+                print_token_importances(sentiment_model, logit_grads[0], tokens, n_tokens, "grad loc importances:")
                 for i in range(1, n_tokens - 1):
                     replacement_options = substitutions_dict[i]['replacement_scores']
                     # Also filter out any substitutions for the CLS and SEP tokens:
@@ -204,7 +202,6 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
             # Compute approximate SV values for each substitution:
 
             important_replacement_locs = [substitutions_locs_values[i][0] for i in range(n_substitutions_after_location_SVs)]
-            print(important_replacement_locs)
             location_sampling_weights = [len(substitutions_dict[i]['replacement_scores']) for i in important_replacement_locs]
             n_subs = sum(location_sampling_weights)
             location_sampling_weights = [w / n_subs for w in location_sampling_weights]
@@ -227,7 +224,7 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
                         
                         replacement_inner_indicies.append(inner_index)
                         eval_tokens[s] = replacement_options[inner_index][0]
-                    SV_eval_prob_pos = probability_positive(tokenizer, sentiment_model, eval_tokens, gpu_device_num)
+                    SV_eval_prob_pos = probability_positive(tokenizer, sentiment_model, eval_tokens, device)
                     model_evals += 1
                     SV_eval_prob_gain = pp_to_pg(flip_target, prob_pos, SV_eval_prob_pos)
                     for j in range(len(replacement_inner_indicies)):
@@ -337,7 +334,7 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
                             child_node_tokens[index_that_would_be_modified_by_possible_substitution] = token_being_substituted_into_child
                             
                             n_tokens_changed = len(child_node_indexes_modified)
-                            child_prob_pos = probability_positive(tokenizer, sentiment_model, child_node_tokens, gpu_device_num)
+                            child_prob_pos = probability_positive(tokenizer, sentiment_model, child_node_tokens, device)
                             model_evals += 1
                             child_prob_gain = pp_to_pg(flip_target, prob_pos, child_prob_pos)
                             child_prob_left = pp_to_pl(flip_target, child_prob_pos)
@@ -374,7 +371,8 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
     # Print diagnostic information and return the results of counterfactual generation:
     if not substitution_evaluation_method in ['SVs']:
         beam_start_time = beam_end_time = 0
-    input_tokens_prob_pos = probability_positive(tokenizer, sentiment_model, best_candidate_tokens, gpu_device_num)
+    input_tokens_prob_pos = probability_positive(tokenizer, sentiment_model, best_candidate_tokens, device)
+
     print("Final eval prob pos:", input_tokens_prob_pos)
     model_evals += 1
     if flip_target == 1:
@@ -422,13 +420,6 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
     return sameness_list, found_flip, frac_tokens_same, -1, -1, tokenizer.convert_tokens_to_string(best_candidate_tokens), tokens, best_candidate_tokens, [0, 0, opt_end_time - opt_start_time, substitution_end_time - substitution_start_time, beam_end_time - beam_start_time], model_evals
 
 
-def calculate_perplexity(model, tokenizer, sentence, gpu_device_num):
-    tokenize_input = tokenizer.encode(sentence, return_tensors="pt").cuda(gpu_device_num)
-    loss = model(tokenize_input, labels=tokenize_input).loss
-    perplexity = torch.exp(loss).item()
-    return perplexity
-
-
 def format_output_text(text):
     """After the tokens have been converted to a string, this function formats the text to be more readable."""
 
@@ -445,218 +436,52 @@ def format_output_text(text):
     return sentence
 
 
-def evaluate_list(text_list, sentiment_model, LM_model, gpt2_model, gpt2_tokenizer, all_word_embeddings, n_epochs, attempts, tokenizer, hs_lr, group_tokens, root_reg, l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_SVs, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, empty_cache_every_text, logname, data_len_str, gpu_device_num=0):
+def generate_counterfactual(text, sentiment_model, LM_model, tokenizer, all_word_embeddings, device, args):
+    id_list = tokenizer.encode(text, add_special_tokens=True, truncation=True)
+    tokens = tokenizer.convert_ids_to_tokens(id_list)
 
-    result_log = []
-    all_results = []
-    all_embeddings = []
-    setup_time = gradient_time = opt_time = substitution_time = greedy_time = total_attempts = texts_tried = total_final_perplexity = total_initial_perplexity = total_flips_found = 0
-    n_texts = len(text_list)
-    #            p2n n2p n2n p2p
-    CM_flips  = [0,  0,  0,  0]
-    CM_f_perp = [0,  0,  0,  0]
-    CM_i_perp = [0,  0,  0,  0]
-    CM_change = [0,  0,  0,  0]
-    CM_evals  = [0,  0,  0,  0]
+    params = {
+        "sentiment_model": sentiment_model,
+        "LM_model": LM_model,
+        "tokenizer": tokenizer,
+        "all_word_embeddings": all_word_embeddings,
+        "tokens": tokens,
+        "text": text,
+        "layer": 0,
+        "hs_lr": 0.005,
+        "group_tokens": False,
+        "root_reg": ["squared"],
+        "l": [1],
+        "extra_lasso": False,
+        "max_opt_steps": 1,
+        "n_samples": args["K"],
+        "topk": args["K"],
+        "substitutions_after_loc": 0.15,
+        "substitutions_after_SVs": 10,
+        "min_substitutions_after_SVs": 50,
+        "use_hard_scoring": True,
+        "min_substitutions": 15,
+        "use_random_n_SV_substitutions": False,
+        "min_run_sample_size": 4,
+        "use_grad_for_loc": True,
+        "max_SV_loc_evals": 0,
+        "slowly_focus_SV_samples": True,
+        "min_SV_samples_per_sub": args["w"],
+        "SV_samples_per_eval_after_location": 0.5,
+        "logit_matix_source": "prediction",
+        "use_exact": False,
+        "n_branches": args["beam_width"],
+        "tree_depth": 0.15,
+        "beam_width": args["beam_width"],
+        "prob_left_early_stopping": 0.499999,
+        "substitution_gen_method": args["substitution_gen_method"],
+        "substitution_evaluation_method": args["substitution_evaluation_method"],
+        "saliency_method": "norm_grad",
+        "device": device
+    }
+    result = generate_flip(**params)
+    (change_indexes, found_flip, frac_tokens_same, frac_words_same, embedding, new_text, old_tokens, new_tokens, all_times, model_evals) = result
     
-    all_flip_diameters = []
+    new_text = format_output_text(tokenizer.convert_tokens_to_string(new_tokens))
 
-    # loop through each sentence in the array
-    for text_loc in tqdm(range(n_texts)):
-        text = text_list[text_loc]
-        
-        skiptxt = False
-        total_attempts = 0
-        
-        id_list = tokenizer.encode(text, add_special_tokens=True, truncation=True)
-        tokens = tokenizer.convert_ids_to_tokens(id_list)
-
-        results_list = []
-        tmp_opt_time = tmp_substitution_time = tmp_greedy_time = tmp_setup_time = tmp_gradient_time = 0
-        for i in range(attempts):
-            
-            # generate the flip:
-            change_indexes, found_flip, frac_tokens_same, frac_words_same, embedding, new_text, old_tokens, new_tokens, all_times, model_evals = generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tokens, text, 0, hs_lr, group_tokens, root_reg, l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_SVs, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, gpu_device_num)
-            old_text = format_output_text(tokenizer.convert_tokens_to_string(old_tokens))
-            new_text = format_output_text(tokenizer.convert_tokens_to_string(new_tokens))
-
-            initial_perplexity = calculate_perplexity(gpt2_model, gpt2_tokenizer, old_text, gpu_device_num)
-            total_initial_perplexity += initial_perplexity
-
-            new_perplexity = calculate_perplexity(gpt2_model, gpt2_tokenizer, new_text, gpu_device_num)
-        
-            if empty_cache_every_text:
-                torch.cuda.empty_cache()
-            tmp_setup_time += all_times[0]
-            tmp_gradient_time += all_times[1]
-            tmp_opt_time += all_times[2]
-            tmp_substitution_time += all_times[3]
-            tmp_greedy_time += all_times[4]
-            
-            initial_PP = probability_positive(tokenizer, sentiment_model, old_tokens, gpu_device_num)
-            new_PP = probability_positive(tokenizer, sentiment_model, new_tokens, gpu_device_num)
-
-            if initial_PP > 0.5 and new_PP < 0.5 or initial_PP < 0.5 and new_PP > 0.5:
-                flip_found = True
-            else:
-                flip_found = False
-            results_list.append([change_indexes, found_flip, frac_tokens_same, [embedding, initial_PP], new_text])
-
-            total_attempts += 1
-            if found_flip and frac_tokens_same > 0.9:
-                break
-        if skiptxt:
-            continue
-
-        first_flip_loc = last_flip_loc = 0
-        n_tokens = len(new_tokens)
-        for i in range(n_tokens):
-            if new_tokens[i] != tokens[i]:
-                first_flip_loc = i
-                break
-        for i in range(1, n_tokens):
-            if new_tokens[n_tokens - i] != tokens[n_tokens - i]:
-                last_flip_loc = n_tokens - i
-                break
-        all_flip_diameters.append([first_flip_loc, last_flip_loc, n_tokens, int(found_flip), round(frac_tokens_same, 6), model_evals + 2])
-        
-        texts_tried += 1
-        setup_time += tmp_setup_time / total_attempts
-        gradient_time += tmp_gradient_time / total_attempts
-        opt_time += tmp_opt_time / total_attempts
-        substitution_time += tmp_substitution_time / total_attempts
-        greedy_time += tmp_greedy_time / total_attempts
-
-        results_list = sorted(results_list, key=lambda x: x[2] * x[1], reverse=True)
-        all_results.append(results_list[0])
-        found_flip = results_list[0][1]
-        if found_flip:
-            total_final_perplexity += new_perplexity
-            total_flips_found += 1
-        
-        if initial_PP > 0.5 and new_PP < 0.5:
-            CM_flips[0] += 1
-            CM_f_perp[0] += new_perplexity
-            CM_i_perp[0] += initial_perplexity
-            CM_change[0] += frac_tokens_same
-            CM_evals[0] += model_evals + 2
-        if initial_PP < 0.5 and new_PP > 0.5:
-            CM_flips[1] += 1
-            CM_f_perp[1] += new_perplexity
-            CM_i_perp[1] += initial_perplexity
-            CM_change[1] += frac_tokens_same
-            CM_evals[1] += model_evals + 2
-        if initial_PP < 0.5 and not found_flip:
-            CM_flips[2] += 1
-            CM_f_perp[2] += new_perplexity
-            CM_i_perp[2] += initial_perplexity
-            CM_change[2] += frac_tokens_same
-            CM_evals[2] += model_evals + 2
-        if initial_PP > 0.5 and not found_flip:
-            CM_flips[3] += 1
-            CM_f_perp[3] += new_perplexity
-            CM_i_perp[3] += initial_perplexity
-            CM_change[3] += frac_tokens_same
-            CM_evals[3] += model_evals + 2
-        
-        CM_f_perp_print = [0,  0,  0,  0]
-        CM_i_perp_print = [0,  0,  0,  0]
-        CM_change_print = [0,  0,  0,  0]
-        CM_evals_print  = [0,  0,  0,  0]
-        
-        for i in range(4):
-            CM_f_perp_print[i] = round(CM_f_perp[i] / max(1, CM_flips[i]), 3)
-            CM_i_perp_print[i] = round(CM_i_perp[i] / max(1, CM_flips[i]), 3)
-            CM_change_print[i] = round(CM_change[i] / max(1, CM_flips[i]), 3)
-            CM_evals_print[i] = round(CM_evals[i] / max(1, CM_flips[i]), 3)
-        
-        print("Results by flip type:")
-        print(CM_flips)
-        print(CM_f_perp_print)
-        print(CM_i_perp_print)
-        print(CM_change_print)
-        print(CM_evals_print)
-        
-        print("Initial perplexity   :", round(initial_perplexity, 3))
-        print("New perplexity   :", round(new_perplexity, 3))
-        print("Initial sentiment score :", round(initial_PP, 3))
-        print("New sentiment score :", round(new_PP, 3))
-
-
-        print("Flip found:", found_flip)
-        print()
-        print("Total perplexity     :", round(total_final_perplexity, 3))
-        print("flips found / texts tried: " + str(total_flips_found) + " / " + str(texts_tried) + " : " + str(round(total_flips_found / texts_tried, 4)))
-        print('\n\n')
-        
-        # output_df = pd.DataFrame(result_log, columns=["original_text", "original_output", "counterfactual_text", "counterfactual_output", "flipped_label", "frac_tokens_same", "counterfactual_perplexity"])
-        # result_log.append([text, new_text, n_tokens, tmp_gradient_time, tmp_opt_time, tmp_substitution_time, tmp_greedy_time, model_evals + 2, bleu, frac_tokens_same, frac_words_same, found_flip, initial_PP, new_PP, first_flip_loc, last_flip_loc])
-        # get the original_output, counterfactual_output, and counterfactual_perplexity:
-        # initial_PP, new_PP
-        # note: frac_tokens_same is calculated for each sentence
-        result_log.append([old_text, initial_PP, initial_perplexity, new_text, new_PP, new_perplexity, found_flip, frac_tokens_same])
-
-    print("\n####################################################################################################################\n")
-    print("\n####################################################################################################################\n")
-    print("\n####################################################################################################################\n")
-    print(all_flip_diameters)
-
-    avg_sameness = 0
-    n_texts_changed = 0
-    for r in all_results:
-        if r[1]:
-            all_embeddings.append(r[3])
-            n_texts_changed += 1
-            avg_sameness += r[2]
-    print("Attempted change for", texts_tried, "texts.")
-    print("Changed sentiment for", n_texts_changed, "texts.")
-    print("Average token match frac among changed texts =", round(avg_sameness / n_texts_changed, 3))
-    print("Average perplexity for original input texts = ", round(total_initial_perplexity / n_texts_changed, 3))
-    print("Average perplexity for generated counterfactuals =", round(total_final_perplexity / n_texts_changed, 3))
-    #for r in all_results:
-    #    print(r[:2])
-    total_time = setup_time + gradient_time + opt_time + substitution_time + greedy_time
-    print("Avg. setup time   :", round(setup_time / texts_tried, 3))
-    print("Avg. gradient time:", round(gradient_time / texts_tried, 3))
-    print("Avg. opt time     :", round(opt_time / texts_tried, 3))
-    print("Avg. subst. time  :", round(substitution_time / texts_tried, 3))
-    print("Avg. greedy time  :", round(greedy_time / texts_tried, 3))
-    print("Avg. total time   :", round(total_time / texts_tried, 3))
-    print("Total time        :", round(total_time, 3))
-    tot_e = 0
-    for i in all_flip_diameters:
-        tot_e += i[5]
-    print("Avg. evals             :", round(tot_e / 1000, 3))
-    f = open("text_logs/" + logname + ".txt", 'w')
-    f.write("Attempted change for " + str(texts_tried) + " texts.")
-    f.write("\nChanged sentiment for " + str(n_texts_changed) + " texts.")
-    f.write("\nAverage token match frac among changed texts = " + str(round(avg_sameness / n_texts_changed, 3)))
-    f.write("\nAverage perplexity for original input texts =  " + str(round(total_initial_perplexity / n_texts_changed, 3)))
-    f.write("\nAverage perplexity for generated counterfactuals = " + str(round(total_final_perplexity / n_texts_changed, 3)))
-    #for r in all_results:
-    #    print(r[:2])
-    f.write("\nAvg. setup time    : " + str(round(setup_time / texts_tried, 3)))
-    f.write("\nAvg. gradient time : " + str(round(gradient_time / texts_tried, 3)))
-    f.write("\nAvg. opt time      : " + str(round(opt_time / texts_tried, 3)))
-    f.write("\nAvg. subst. time   : " + str(round(substitution_time / texts_tried, 3)))
-    f.write("\nAvg. greedy time   : " + str(round(greedy_time / texts_tried, 3)))
-    f.write("\nAvg. total time    : " + str(round(total_time / texts_tried, 3)))
-    f.write("\nTotal time         : " + str(round(total_time, 3)))
-    f.write("\nAvg. evals         : " + str(round(tot_e / 1000, 3)))
-    
-    output_string = "{" + str(beam_width) + ", " + str(min_SV_samples_per_sub) + ", " + str(topk) + ", {" + str(round(total_time / texts_tried, 5)) + ", " + str(round(tot_e / texts_tried, 5)) + ", " + str(round(total_initial_perplexity / n_texts_changed, 5)) + ", " + str(round(total_final_perplexity / n_texts_changed, 5)) + ", " + str(round((total_final_perplexity / total_initial_perplexity) / n_texts_changed, 5)) + ", " + str(round(avg_sameness / n_texts_changed, 5)) + ", " + str(round(n_texts_changed / texts_tried, 5))  + "}, \"" + data_len_str + "_" + substitution_gen_method + "_" + substitution_evaluation_method + "\"}"
-            
-    python_string = output_string.replace('{', '[').replace('}', ']')
-    
-    print(output_string)
-    print(python_string)
-
-    # output_df = pd.DataFrame(result_log, columns=["Original_text", "New_text", "N_tokens", "Grad_time", "Opt_time", "Subst_time", "Beamsearch_time", "N_evals", "Bleu", "Frac_tokens_same", "Frac_words_same", "Found_flip", "Original_prob_positive", "New_prob_positive", "First_flip_loc", "Last_flip_loc"])
-    output_df = pd.DataFrame(result_log, columns=["original_text", "original_score", "original_perplexity", "counterfactual_text", "counterfactual_score", "counterfactual_perplexity", "found_flip", "frac_tokens_same"])
-    # output_df.to_csv("tsv_logs/" + logname + ".tsv", sep='\t')
-    output_df.to_csv("../output/closs-output.csv", index=False)
-    
-    f.write("\n" + output_string + "\n" + python_string + '\n')
-    f.close()
-    
-    return
+    return new_text

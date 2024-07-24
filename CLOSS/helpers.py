@@ -38,51 +38,44 @@ def isRoberta(model):
     return type(model) in [transformers.models.roberta.modeling_roberta.RobertaForSequenceClassification, transformers.models.roberta.modeling_roberta.RobertaForMaskedLM]
 
 # Adapted from /content/pytorch-pretrained-BERT/pytorch_pretrained_bert/modeling.py
-def onwards(averaged_activation, layer_id, model, gpu_device_num):
+def onwards(averaged_activation, layer_id, model):
     logits = model(inputs_embeds=averaged_activation).logits
     return logits
 
 
 
 
-def onwards_token_predict(averaged_activation, layer_id, model, flip_target, gpu_device_num):
+def onwards_token_predict(averaged_activation, layer_id, model, flip_target):
     final_hidden = model(inputs_embeds=averaged_activation, output_hidden_states=True).hidden_states[-1]
     predictions = model.lm_head(final_hidden)
     return predictions
 
 
-def onwards_token_train(averaged_activation, model, gpu_device_num):
+def onwards_token_train(averaged_activation, model):
     outputs = model(inputs_embeds=averaged_activation, output_hidden_states=True)
     final_hidden = outputs.hidden_states[-1]
     logits = outputs.logits
     return final_hidden
 
 
-def probability_positive(tokenizer, sentiment_model, text, gpu_device_num):
+def probability_positive(tokenizer, sentiment_model, text, device):
     if type(text) == torch.Tensor:
-        ids = text.view(1, -1).cuda(gpu_device_num)
+        ids = text.view(1, -1).to(device)
     elif type(text) == list:
         if type(text[0]) == int:
-            ids = torch.tensor(text).view(1, -1).cuda(gpu_device_num)
+            ids = torch.tensor(text).view(1, -1).to(device)
         else:
-            ids = torch.tensor(tokenizer.convert_tokens_to_ids(text)).view(1, -1).cuda(gpu_device_num)
+            ids = torch.tensor(tokenizer.convert_tokens_to_ids(text)).view(1, -1).to(device)
     else:
-        ids = torch.tensor(tokenizer.encode(text, add_special_tokens=True, truncation=True)).view(1, -1).cuda(gpu_device_num)
-    #embedding = get_embeddings(sentiment_model, ids, gpu_device_num)
-    #logits = sentiment_model(inputs_embeds=embedding).logits
-    #print("probability_positive IO:", logits)
-    #prob_positive = torch.nn.functional.softmax(logits, dim=1).T[1].item()
-    
-    
+        ids = torch.tensor(tokenizer.encode(text, add_special_tokens=True, truncation=True)).view(1, -1).to(device)
     
     if isBert(sentiment_model):
-        outputs = sentiment_model(ids.cuda(gpu_device_num), token_type_ids=get_token_type_ids(ids).cuda(gpu_device_num))
+        outputs = sentiment_model(ids.to(device), token_type_ids=get_token_type_ids(ids).to(device))
     elif isRoberta(sentiment_model):
-        outputs = sentiment_model(ids.cuda(gpu_device_num))
+        outputs = sentiment_model(ids.to(device))
     loss = outputs.loss
     logits = outputs.logits
         
-    #ppe = probability_positive(sentiment_model, tokens, gpu_device_num)
     prob_positive = torch.nn.functional.softmax(logits, dim=1)[0][1].item()
     return prob_positive
 
@@ -97,11 +90,11 @@ def get_word_embeddings(model, ids):
 
 
 
-def get_embeddings(model, ids, gpu_device_num):
+def get_embeddings(model, ids, device):
     if isRoberta(model):
         word_embedding = model.roberta.embeddings(ids)
     elif isBert(model):
-        token_type_ids = get_token_type_ids(ids).cuda(gpu_device_num)
+        token_type_ids = get_token_type_ids(ids).to(device)
         #token_type_embeddings = model.bert.embeddings.token_type_embeddings(token_type_ids)
         word_embedding = model.bert.embeddings(input_ids=ids, token_type_ids=token_type_ids)
     else:
@@ -138,7 +131,7 @@ def get_token_type_ids(tokens):
                 passed_SEP = True
     return torch.tensor([token_type_ids])
 
-def print_token_importances(sentiment_model, locational_scores, tokens, n_tokens, desc, gpu_device_num):
+def print_token_importances(sentiment_model, locational_scores, tokens, n_tokens, desc):
     paired_location_and_score = [[i, 0] for i in range(0, n_tokens)]
     for i in range(0, n_tokens):
         if i == 0 or i == n_tokens - 1:
@@ -192,19 +185,19 @@ def print_token_importances(sentiment_model, locational_scores, tokens, n_tokens
             importance_string += spacechar + colored(old_tok, 'magenta')
     print(importance_string.replace('Ġ', ' '))
 
-def compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer, loss_fct, flip_target, tokens, gpu_device_num):
+def compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer, loss_fct, flip_target, tokens, device):
     
-    ids_tensor = torch.tensor(tokenizer.convert_tokens_to_ids(tokens)).cuda(gpu_device_num).view(1,-1)
-    embedding = get_embeddings(sentiment_model, ids_tensor, gpu_device_num).cuda(gpu_device_num).requires_grad_(True)
+    ids_tensor = torch.tensor(tokenizer.convert_tokens_to_ids(tokens)).to(device).view(1,-1)
+    embedding = get_embeddings(sentiment_model, ids_tensor, device).to(device).detach().requires_grad_(True)
     
     embedding_opt = torch.optim.Adam([embedding], lr=1e-4)
-    initial_outputs = onwards(embedding, 0, sentiment_model, gpu_device_num)
+    initial_outputs = onwards(embedding, 0, sentiment_model)
     #if random.randint(0, 100) == 4:
     #    print(torch.nn.functional.softmax(initial_outputs, dim=1))
     #prob_pos = torch.nn.functional.softmax(initial_outputs, dim=1).T[1].item()
-    prob_pos = probability_positive(tokenizer, sentiment_model, tokens, gpu_device_num)
+    prob_pos = probability_positive(tokenizer, sentiment_model, tokens, device)
     
-    loss = loss_fct(initial_outputs, torch.tensor([1 - flip_target]).cuda(gpu_device_num).long())
+    loss = loss_fct(initial_outputs, torch.tensor([1 - flip_target]).to(device).long())
     loss.backward()
     embedding_grad = embedding.grad[0]
     #print("embedding_grad     :", embedding_grad.size())
@@ -215,23 +208,23 @@ def compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer,
     token_derivatives = torch.sum(embedding_grad * embedding[0], dim=1)
     if random.randint(0, 1000) == 3:
         print(embedding[0].size(), embedding_grad.size(), (embedding_grad * embedding[0]).size(), token_derivatives.size())
-        print_token_importances(sentiment_model, token_derivatives, tokens, len(tokens), "Token derivs", gpu_device_num)
+        print_token_importances(sentiment_model, token_derivatives, tokens, len(tokens), "Token derivs")
     
     #print(embedding_grad.size(), all_word_embeddings.size())
-    vocab_derivatives = torch.zeros((len(tokens), tokenizer.vocab_size)).cuda(gpu_device_num)
+    vocab_derivatives = torch.zeros((len(tokens), tokenizer.vocab_size)).to(device)
     #for i in range(len(tokens)):
     #    vocab_derivatives[i][:] = torch.sum(torch.pow(embedding_grad[i] * all_word_embeddings, 2), dim=1)
     
     vocab_derivatives = torch.matmul(embedding_grad, all_word_embeddings.T)
     #print("vocab_derivatives  :", vocab_derivatives.size())
     #substitution_scores = (token_derivatives - vocab_derivatives.T).cuda(gpu_device_num)
-    substitution_scores = (vocab_derivatives.T - token_derivatives).cuda(gpu_device_num)
+    substitution_scores = (vocab_derivatives.T - token_derivatives).to(device)
     #substitution_scores = torch.rand_like(substitution_scores)
     
     #torch.sum(torch.pow(all_word_embeddings * embedding_grad, 2), dim=2)
     return substitution_scores.T, prob_pos
     
-def hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, topk, flip_target, prob_pos, tokens, n_tokens, gpu_device_num):
+def hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, topk, flip_target, prob_pos, tokens, n_tokens, device):
     beam = [[tokens, 0, []]]
     extra_evals = 0
     for i in range(int(n_tokens * tree_depth)):
@@ -244,7 +237,7 @@ def hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct
             c_tokens = c[0]
             c_score = c[1]
             c_indexes_modified = c[2]
-            substitution_scores, candidate_prob_pos = compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer, loss_fct, flip_target, c_tokens, gpu_device_num)
+            substitution_scores, candidate_prob_pos = compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer, loss_fct, flip_target, c_tokens, device)
             extra_evals += 1
             #print(candidate_prob_pos)
 
@@ -288,7 +281,7 @@ def hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct
     return tokens, extra_evals
 
 
-def get_lm_head(model, head_data, n_epochs, tokenizer, text_list, gpu_device_num):
+def get_lm_head(model, head_data, n_epochs, tokenizer, text_list, device):
     if head_data[:6] == 'texts:':
         head_data = head_data[6:]
         use_provided_data = True
@@ -329,7 +322,7 @@ def get_lm_head(model, head_data, n_epochs, tokenizer, text_list, gpu_device_num
         if head_data == 'default':
             return lm_head
 
-    lm_head.cuda(gpu_device_num)
+    lm_head.to(device)
     # retrain the language modeling head if the default setting is not set
     model.lm_head = lm_head
     loss_fct = torch.nn.CrossEntropyLoss()
@@ -341,7 +334,7 @@ def get_lm_head(model, head_data, n_epochs, tokenizer, text_list, gpu_device_num
     for text_loc in range(n_texts):
         text = data[text_loc]
         id_list = tokenizer.encode(text, add_special_tokens=True, truncation=True)
-        id_tensor = torch.tensor([id_list]).cuda(gpu_device_num)
+        id_tensor = torch.tensor([id_list]).to(device)
         tokens_added = len(id_list)
         if tokens_found + tokens_added <= target_tokens:
             id_tensor_list.append(id_tensor)
@@ -361,8 +354,8 @@ def get_lm_head(model, head_data, n_epochs, tokenizer, text_list, gpu_device_num
             n_toks_passed_to_LMH += len(id_tensor[0])
             
             # put the tokens in the model, get embeddings, get final hidden state, and get predictions
-            hidden_state = get_embeddings(model, id_tensor, gpu_device_num)
-            final_hidden = onwards_token_train(hidden_state, model, gpu_device_num)
+            hidden_state = get_embeddings(model, id_tensor, device)
+            final_hidden = onwards_token_train(hidden_state, model)
             predictions = model.lm_head(final_hidden)
             
             masked_lm_loss = loss_fct(predictions.view(-1, tokenizer.vocab_size), id_tensor.view(-1))
@@ -375,16 +368,16 @@ def get_lm_head(model, head_data, n_epochs, tokenizer, text_list, gpu_device_num
     torch.save(lm_head, lm_head_path)
     return lm_head
 
-def get_saliency(sentiment_model, tokenizer, prob_pos, flip_target, tokens, ids, method, loss_fct, gpu_device_num):
+def get_saliency(sentiment_model, tokenizer, prob_pos, flip_target, tokens, ids, method, loss_fct, device):
     if method in ['norm_grad', 'norm_grad+', 'grad']:
-        new_embeddings = get_embeddings(sentiment_model, ids, gpu_device_num).cuda(gpu_device_num).requires_grad_(True)
+        new_embeddings = get_embeddings(sentiment_model, ids, device).to(device).detach().requires_grad_(True)
         embedding_opt = torch.optim.Adam([new_embeddings])
-        initial_outputs = onwards(new_embeddings, 0, sentiment_model, gpu_device_num)
-        loss = loss_fct(initial_outputs, torch.tensor([flip_target]).cuda(gpu_device_num).long())
+        initial_outputs = onwards(new_embeddings, 0, sentiment_model)
+        loss = loss_fct(initial_outputs, torch.tensor([flip_target]).to(device).long())
         loss.backward()
         embedding_grad = new_embeddings.grad
-        new_ids_tensor = torch.tensor(tokenizer.convert_tokens_to_ids(tokens)).cuda(gpu_device_num)
-        word_embedding = get_word_embeddings(sentiment_model, new_ids_tensor).cuda(gpu_device_num)
+        new_ids_tensor = torch.tensor(tokenizer.convert_tokens_to_ids(tokens)).to(device)
+        word_embedding = get_word_embeddings(sentiment_model, new_ids_tensor).to(device)
         if method == 'norm_grad':
             logit_grads = torch.sum(torch.pow(word_embedding * embedding_grad, 2), dim=2)
         if method == 'norm_grad+':
@@ -403,60 +396,21 @@ def get_saliency(sentiment_model, tokenizer, prob_pos, flip_target, tokens, ids,
             else:
                 print("Error: unknown saliency method:", method)
             
-            pp_i = probability_positive(tokenizer, sentiment_model, mod_ids, gpu_device_num)
+            pp_i = probability_positive(tokenizer, sentiment_model, mod_ids, device)
             extra_evals += 1
             pg_i = pp_to_pg(flip_target, prob_pos, pp_i)
             #print(pg_i)
             saliencies[0][i] = pg_i
         return saliencies, extra_evals
     elif method in ['random', 'rand']:
-        saliencies = torch.randn(ids.size()).cuda(gpu_device_num)
+        saliencies = torch.randn(ids.size()).to(device)
         saliencies[0][0] = - 10.0
         saliencies[0][-1] = -10.0
         return saliencies, 0
     else:
         print("Error: unknown saliency method:", method)
 
-def process_dataframe(df, sentiment_model, tokenizer, test_acc):
-    df_list = []
-    oC = 0
-    n = 0
-    for i in range(len(df)):
-        text_o = df.iloc[i]['original_text']
-        try:
-            text_o = text_o.replace('[[[[Question]]]]: ', '')
-            text_o = text_o.replace('[[[[Sentence]]]]: ', '')
-            if isRoberta(sentiment_model):
-                text_o = text_o.replace('>>>>', '</s></s>')
-            elif isBert(sentiment_model):
-                text_o = text_o.replace('>>>>', '[SEP]')
-            text_o = text_o.replace('[[', '')
-            text_o = text_o.replace(']]', '')
-        except:
-            pass
-        
-        if test_acc:
-            trueL = df.iloc[i]['ground_truth_output']
-            n_words += len(text_o.split(' '))
-            id_list = tokenizer.encode(text_o, add_special_tokens=True, truncation=True)
-            tokens = tokenizer.convert_ids_to_tokens(id_list)
-            ppe = probability_positive(tokenizer, sentiment_model, tokens, gpu_device_num)
-            
-            if abs(trueL - ppe) < 0.5:
-                oC += 1
-            else:
-                print(ppe, trueL)
-                print(tokens)
-            n += 1
-        
-        df_list.append(text_o)
-    if test_acc:
-        print(oC / n, n)
-        print(n_words / len(df_list))
-    return df_list
-
-
-def hotflip_beamsearch_substitutions(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, flip_target, prob_pos, tokens, n_tokens, substitutions_dict, gpu_device_num):
+def hotflip_beamsearch_substitutions(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, flip_target, prob_pos, tokens, n_tokens, substitutions_dict, device):
     beam = [[tokens, 0, []]]
     extra_evals = 0
     for i in range(int(n_tokens * tree_depth)):
@@ -468,7 +422,7 @@ def hotflip_beamsearch_substitutions(all_word_embeddings, sentiment_model, token
             c_tokens = c[0]
             c_score = c[1]
             c_indexes_modified = c[2]
-            substitution_scores, candidate_prob_pos = compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer, loss_fct, flip_target, c_tokens, gpu_device_num)
+            substitution_scores, candidate_prob_pos = compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer, loss_fct, flip_target, c_tokens, device)
             extra_evals += 1
 
             candidate_prob_left = pp_to_pl(flip_target, candidate_prob_pos)

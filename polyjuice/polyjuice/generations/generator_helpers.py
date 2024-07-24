@@ -17,6 +17,7 @@ def split_ctrl_code(text):
     if r:
         return r.group("code").strip(), r.group("text").strip()
     return "", text
+
 def remove_blanks(text):
     try:
         before, answers = text.split(SEP_TOK)
