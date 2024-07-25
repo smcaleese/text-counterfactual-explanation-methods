@@ -482,6 +482,7 @@ def generate_counterfactual(text, sentiment_model, LM_model, tokenizer, all_word
     result = generate_flip(**params)
     (change_indexes, found_flip, frac_tokens_same, frac_words_same, embedding, new_text, old_tokens, new_tokens, all_times, model_evals) = result
     
-    new_text = format_output_text(tokenizer.convert_tokens_to_string(new_tokens))
+    counterfactual_text = tokenizer.convert_tokens_to_string(new_tokens)
+    counterfactual_text = counterfactual_text[6:-6]
 
-    return new_text
+    return counterfactual_text
