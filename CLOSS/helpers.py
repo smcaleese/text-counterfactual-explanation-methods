@@ -45,7 +45,7 @@ def onwards(averaged_activation, layer_id, model):
 
 
 
-def onwards_token_predict(averaged_activation, layer_id, model, flip_target):
+def onwards_token_predict(averaged_activation, layer_id, model):
     final_hidden = model(inputs_embeds=averaged_activation, output_hidden_states=True).hidden_states[-1]
     predictions = model.lm_head(final_hidden)
     return predictions
@@ -58,26 +58,26 @@ def onwards_token_train(averaged_activation, model):
     return final_hidden
 
 
-def probability_positive(tokenizer, sentiment_model, text, device):
-    if type(text) == torch.Tensor:
-        ids = text.view(1, -1).to(device)
-    elif type(text) == list:
-        if type(text[0]) == int:
-            ids = torch.tensor(text).view(1, -1).to(device)
-        else:
-            ids = torch.tensor(tokenizer.convert_tokens_to_ids(text)).view(1, -1).to(device)
-    else:
-        ids = torch.tensor(tokenizer.encode(text, add_special_tokens=True, truncation=True)).view(1, -1).to(device)
+# def probability_positive(tokenizer, sentiment_model, text, device):
+#     if type(text) == torch.Tensor:
+#         ids = text.view(1, -1).to(device)
+#     elif type(text) == list:
+#         if type(text[0]) == int:
+#             ids = torch.tensor(text).view(1, -1).to(device)
+#         else:
+#             ids = torch.tensor(tokenizer.convert_tokens_to_ids(text)).view(1, -1).to(device)
+#     else:
+#         ids = torch.tensor(tokenizer.encode(text, add_special_tokens=True, truncation=True)).view(1, -1).to(device)
     
-    if isBert(sentiment_model):
-        outputs = sentiment_model(ids.to(device), token_type_ids=get_token_type_ids(ids).to(device))
-    elif isRoberta(sentiment_model):
-        outputs = sentiment_model(ids.to(device))
-    loss = outputs.loss
-    logits = outputs.logits
+#     if isBert(sentiment_model):
+#         outputs = sentiment_model(ids.to(device), token_type_ids=get_token_type_ids(ids).to(device))
+#     elif isRoberta(sentiment_model):
+#         outputs = sentiment_model(ids.to(device))
+#     loss = outputs.loss
+#     logits = outputs.logits
         
-    prob_positive = torch.nn.functional.softmax(logits, dim=1)[0][1].item()
-    return prob_positive
+#     prob_positive = torch.nn.functional.softmax(logits, dim=1)[0][1].item()
+#     return prob_positive
 
 def get_word_embeddings(model, ids):
     if isRoberta(model):
@@ -190,7 +190,6 @@ def compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer,
     ids_tensor = torch.tensor(tokenizer.convert_tokens_to_ids(tokens)).to(device).view(1,-1)
     embedding = get_embeddings(sentiment_model, ids_tensor, device).to(device).detach().requires_grad_(True)
     
-    embedding_opt = torch.optim.Adam([embedding], lr=1e-4)
     initial_outputs = onwards(embedding, 0, sentiment_model)
     #if random.randint(0, 100) == 4:
     #    print(torch.nn.functional.softmax(initial_outputs, dim=1))
@@ -199,13 +198,13 @@ def compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer,
     
     loss = loss_fct(initial_outputs, torch.tensor([1 - flip_target]).to(device).long())
     loss.backward()
-    embedding_grad = embedding.grad[0]
+    embedding_grad = embedding.grad[0] # (19, 768)
     #print("embedding_grad     :", embedding_grad.size())
     #print("all_word_embeddings:", all_word_embeddings.size())
     #print("embedding          :", embedding.size())
     
     #token_derivatives = torch.sum(torch.pow(embedding_grad * embedding[0], 2), dim=1)
-    token_derivatives = torch.sum(embedding_grad * embedding[0], dim=1)
+    token_derivatives = torch.sum(embedding_grad * embedding[0], dim=1) # (19)
     if random.randint(0, 1000) == 3:
         print(embedding[0].size(), embedding_grad.size(), (embedding_grad * embedding[0]).size(), token_derivatives.size())
         print_token_importances(sentiment_model, token_derivatives, tokens, len(tokens), "Token derivs")
@@ -215,14 +214,15 @@ def compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer,
     #for i in range(len(tokens)):
     #    vocab_derivatives[i][:] = torch.sum(torch.pow(embedding_grad[i] * all_word_embeddings, 2), dim=1)
     
-    vocab_derivatives = torch.matmul(embedding_grad, all_word_embeddings.T)
+    vocab_derivatives = torch.matmul(embedding_grad, all_word_embeddings.T) # (19, 30522)
     #print("vocab_derivatives  :", vocab_derivatives.size())
     #substitution_scores = (token_derivatives - vocab_derivatives.T).cuda(gpu_device_num)
-    substitution_scores = (vocab_derivatives.T - token_derivatives).to(device)
+    substitution_scores = (vocab_derivatives.T - token_derivatives).to(device) # (30522, 19)
     #substitution_scores = torch.rand_like(substitution_scores)
     
     #torch.sum(torch.pow(all_word_embeddings * embedding_grad, 2), dim=2)
-    return substitution_scores.T, prob_pos
+    # get the substitution value of every token in the vocabulary 
+    return substitution_scores.T, prob_pos # (19, 30522)
     
 def hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, topk, flip_target, prob_pos, tokens, n_tokens, device):
     beam = [[tokens, 0, []]]
@@ -237,6 +237,8 @@ def hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct
             c_tokens = c[0]
             c_score = c[1]
             c_indexes_modified = c[2]
+            # note: substitution_scores is a (t x n) tensor where t is the number of tokens and n is the vocab size (e.g. 19 x 30522)
+            # TODO: understand how this function works
             substitution_scores, candidate_prob_pos = compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer, loss_fct, flip_target, c_tokens, device)
             extra_evals += 1
             #print(candidate_prob_pos)
@@ -246,7 +248,8 @@ def hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct
             if candidate_prob_left < prob_left_early_stopping:
                 print("CF FOUND!!!!!!!!!!!!!!")
                 return c_tokens, extra_evals
-            sub_scores, sub_ids = torch.topk(substitution_scores, topk, dim=1)
+            # for each token (row), get the top 5 substitution indices
+            sub_scores, sub_ids = torch.topk(substitution_scores, topk, dim=1) # (19 x 30): 30 possible substitutions for each token
             for j in range(1, n_tokens - 1):
                 if (not j in c_indexes_modified) and (not tokens[j] in ['[SEP]', '[CLS]', '</s>', '<s>']):
                     for l in range(topk):
@@ -256,6 +259,8 @@ def hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct
                     
                         potential_substitutions.append([(j, id_of_token_to_insert, tokenizer.convert_ids_to_tokens(id_of_token_to_insert)), c_num, sub_score, sub_score + c_score])
             
+        # substitution candidate: [(2, 28231, '##ssion'), 0, 1.2726036402455065e-06, 1.2726036402455065e-06]
+        # sort by sub score:
         potential_substitutions = sorted(potential_substitutions, key=lambda x: x[3], reverse=True)[:beam_width]
         #print(potential_substitutions)
         #print('\n', potential_substitutions)

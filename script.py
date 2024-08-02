@@ -51,9 +51,6 @@ def generate_closs_counterfactual(text, args):
     return counterfactual_text
 
 def main():
-    df_input = pd.read_csv(f"input/sst-input.csv")
-    # text = df_input.iloc[0]["original_text"]
-    # text = "I really loved the movie."
     text = "I thought the movie was terrible and one of the worst I've ever seen."
     print(f"Original text: {text}")
 
@@ -74,6 +71,7 @@ def main():
     # }
 
     counterfactual_text = generate_closs_counterfactual(text, args)
+    print(f"counterfactual_text: {counterfactual_text}")
 
 if __name__ == "__main__":
     main()

@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from .helpers import *
 
 
-def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tokens, text, layer, hs_lr, group_tokens, root_reg,  l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, device):
+def generate_flip(sentiment_model, LM_model, calculate_score, dataset, tokenizer, all_word_embeddings, tokens, text, layer, hs_lr, group_tokens, root_reg, l, extra_lasso, max_opt_steps, n_samples, topk, substitutions_after_loc, substitutions_after_SVs, min_substitutions_after_SVs, use_hard_scoring, min_substitutions, use_random_n_SV_substitutions, min_run_sample_size, use_grad_for_loc, max_SV_loc_evals, slowly_focus_SV_samples, min_SV_samples_per_sub, SV_samples_per_eval_after_location, logit_matix_source, use_exact, n_branches, tree_depth, beam_width, prob_left_early_stopping, substitution_gen_method, substitution_evaluation_method, saliency_method, device):
 
     start_time = time.time() ###
     model_evals = 0
@@ -33,18 +33,16 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
     hidden_state = get_embeddings(LM_model, ids, device).to(device)
     original_hidden_state = hidden_state.clone().detach()
     model_evals += 1
-    prob_pos = probability_positive(tokenizer, sentiment_model, tokens, device)
+    # TODO: you could replace this with a function that calculates the probability of the current label for the AG News dataset.
+    prob_pos = calculate_score(text, tokenizer, dataset, device)
     found_flip = False
-#    restart = False
+
+    # TODO: move this to the run_methods notebook for the AG News dataset:
     if prob_pos > 0.5:
         flip_target = 0
     else:
         flip_target = 1
     
-    if substitution_gen_method == 'no_opt_lmh':
-        forward_prediction_target = - 1
-    else:
-        forward_prediction_target = flip_target
     opt_start_time = time.time()
     substitutions_dict = {}
     substitutions_locs_values = [[i, -2] for i in range(0, n_tokens)]
@@ -126,7 +124,8 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
             if substitution_gen_method == 'random':
                 sample_logits = torch.rand((n_tokens, tokenizer.vocab_size))
             else:
-                sample_logits = onwards_token_predict(candidate_hidden_state, layer, LM_model, forward_prediction_target)[0]
+                # Get the logits from the BERT encoding of the sentence
+                sample_logits = onwards_token_predict(candidate_hidden_state, layer, LM_model)[0]
 
 
             if topk > 0:
@@ -224,7 +223,7 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
                         
                         replacement_inner_indicies.append(inner_index)
                         eval_tokens[s] = replacement_options[inner_index][0]
-                    SV_eval_prob_pos = probability_positive(tokenizer, sentiment_model, eval_tokens, device)
+                    SV_eval_prob_pos = calculate_score(text, tokenizer, dataset, device)
                     model_evals += 1
                     SV_eval_prob_gain = pp_to_pg(flip_target, prob_pos, SV_eval_prob_pos)
                     for j in range(len(replacement_inner_indicies)):
@@ -334,7 +333,7 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
                             child_node_tokens[index_that_would_be_modified_by_possible_substitution] = token_being_substituted_into_child
                             
                             n_tokens_changed = len(child_node_indexes_modified)
-                            child_prob_pos = probability_positive(tokenizer, sentiment_model, child_node_tokens, device)
+                            child_prob_pos = calculate_score(text, tokenizer, dataset, device)
                             model_evals += 1
                             child_prob_gain = pp_to_pg(flip_target, prob_pos, child_prob_pos)
                             child_prob_left = pp_to_pl(flip_target, child_prob_pos)
@@ -371,7 +370,7 @@ def generate_flip(sentiment_model, LM_model, tokenizer, all_word_embeddings, tok
     # Print diagnostic information and return the results of counterfactual generation:
     if not substitution_evaluation_method in ['SVs']:
         beam_start_time = beam_end_time = 0
-    input_tokens_prob_pos = probability_positive(tokenizer, sentiment_model, best_candidate_tokens, device)
+    input_tokens_prob_pos = calculate_score(text, tokenizer, dataset, device)
 
     print("Final eval prob pos:", input_tokens_prob_pos)
     model_evals += 1
@@ -436,13 +435,15 @@ def format_output_text(text):
     return sentence
 
 
-def generate_counterfactual(text, sentiment_model, LM_model, tokenizer, all_word_embeddings, device, args):
+def generate_counterfactual(text, sentiment_model, LM_model, calculate_score, tokenizer, all_word_embeddings, device, args):
     id_list = tokenizer.encode(text, add_special_tokens=True, truncation=True)
     tokens = tokenizer.convert_ids_to_tokens(id_list)
 
     params = {
         "sentiment_model": sentiment_model,
         "LM_model": LM_model,
+        "calculate_score": calculate_score,
+        "dataset": args["dataset"],
         "tokenizer": tokenizer,
         "all_word_embeddings": all_word_embeddings,
         "tokens": tokens,
