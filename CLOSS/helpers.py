@@ -185,7 +185,7 @@ def print_token_importances(sentiment_model, locational_scores, tokens, n_tokens
             importance_string += spacechar + colored(old_tok, 'magenta')
     print(importance_string.replace('Ġ', ' '))
 
-def compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer, loss_fct, flip_target, tokens, device):
+def compute_substitution_scores(all_word_embeddings, sentiment_model, calculate_score, tokenizer, dataset, loss_fct, flip_target, tokens, device):
     
     ids_tensor = torch.tensor(tokenizer.convert_tokens_to_ids(tokens)).to(device).view(1,-1)
     embedding = get_embeddings(sentiment_model, ids_tensor, device).to(device).detach().requires_grad_(True)
@@ -193,8 +193,9 @@ def compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer,
     initial_outputs = onwards(embedding, 0, sentiment_model)
     #if random.randint(0, 100) == 4:
     #    print(torch.nn.functional.softmax(initial_outputs, dim=1))
-    #prob_pos = torch.nn.functional.softmax(initial_outputs, dim=1).T[1].item()
-    prob_pos = probability_positive(tokenizer, sentiment_model, tokens, device)
+    # prob_pos = torch.nn.functional.softmax(initial_outputs, dim=1).T[1].item()
+    # prob_pos = probability_positive(tokenizer, sentiment_model, tokens, device)
+    prob_pos = calculate_score(tokens, tokenizer, dataset, device)
     
     loss = loss_fct(initial_outputs, torch.tensor([1 - flip_target]).to(device).long())
     loss.backward()
@@ -224,7 +225,7 @@ def compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer,
     # get the substitution value of every token in the vocabulary 
     return substitution_scores.T, prob_pos # (19, 30522)
     
-def hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, topk, flip_target, prob_pos, tokens, n_tokens, device):
+def hotflip_beamsearch(all_word_embeddings, sentiment_model, calculate_score, tokenizer, dataset, loss_fct, beam_width, tree_depth, prob_left_early_stopping, topk, flip_target, prob_pos, tokens, n_tokens, device):
     beam = [[tokens, 0, []]]
     extra_evals = 0
     for i in range(int(n_tokens * tree_depth)):
@@ -239,7 +240,7 @@ def hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct
             c_indexes_modified = c[2]
             # note: substitution_scores is a (t x n) tensor where t is the number of tokens and n is the vocab size (e.g. 19 x 30522)
             # TODO: understand how this function works
-            substitution_scores, candidate_prob_pos = compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer, loss_fct, flip_target, c_tokens, device)
+            substitution_scores, candidate_prob_pos = compute_substitution_scores(all_word_embeddings, sentiment_model, calculate_score, tokenizer, dataset, loss_fct, flip_target, c_tokens, device)
             extra_evals += 1
             #print(candidate_prob_pos)
 
@@ -373,7 +374,7 @@ def get_lm_head(model, head_data, n_epochs, tokenizer, text_list, device):
     torch.save(lm_head, lm_head_path)
     return lm_head
 
-def get_saliency(sentiment_model, tokenizer, prob_pos, flip_target, tokens, ids, method, loss_fct, device):
+def get_saliency(sentiment_model, calculate_score, tokenizer, prob_pos, flip_target, tokens, ids, method, loss_fct, device):
     if method in ['norm_grad', 'norm_grad+', 'grad']:
         new_embeddings = get_embeddings(sentiment_model, ids, device).to(device).detach().requires_grad_(True)
         embedding_opt = torch.optim.Adam([new_embeddings])
@@ -401,7 +402,8 @@ def get_saliency(sentiment_model, tokenizer, prob_pos, flip_target, tokens, ids,
             else:
                 print("Error: unknown saliency method:", method)
             
-            pp_i = probability_positive(tokenizer, sentiment_model, mod_ids, device)
+            # pp_i = probability_positive(tokenizer, sentiment_model, mod_ids, device)
+            pp_i = calculate_score(mod_ids, tokenizer, dataset, device)
             extra_evals += 1
             pg_i = pp_to_pg(flip_target, prob_pos, pp_i)
             #print(pg_i)
@@ -415,7 +417,7 @@ def get_saliency(sentiment_model, tokenizer, prob_pos, flip_target, tokens, ids,
     else:
         print("Error: unknown saliency method:", method)
 
-def hotflip_beamsearch_substitutions(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, flip_target, prob_pos, tokens, n_tokens, substitutions_dict, device):
+def hotflip_beamsearch_substitutions(all_word_embeddings, sentiment_model, calculate_score, tokenizer, dataset, loss_fct, beam_width, tree_depth, prob_left_early_stopping, flip_target, prob_pos, tokens, n_tokens, substitutions_dict, device):
     beam = [[tokens, 0, []]]
     extra_evals = 0
     for i in range(int(n_tokens * tree_depth)):
@@ -427,7 +429,7 @@ def hotflip_beamsearch_substitutions(all_word_embeddings, sentiment_model, token
             c_tokens = c[0]
             c_score = c[1]
             c_indexes_modified = c[2]
-            substitution_scores, candidate_prob_pos = compute_substitution_scores(all_word_embeddings, sentiment_model, tokenizer, loss_fct, flip_target, c_tokens, device)
+            substitution_scores, candidate_prob_pos = compute_substitution_scores(all_word_embeddings, sentiment_model, calculate_score, tokenizer, dataset, loss_fct, flip_target, c_tokens, device)
             extra_evals += 1
 
             candidate_prob_left = pp_to_pl(flip_target, candidate_prob_pos)

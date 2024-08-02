@@ -38,11 +38,47 @@ def get_all_embeddings(model, tokenizer):
 
 all_word_embeddings = get_all_embeddings(sentiment_model, sentiment_model_tokenizer)
 
+def calculate_score(text, sentiment_model_tokenizer, dataset, device):
+    def tokenize_with_correct_token_type_ids(input_text, tokenizer):
+        # Tokenize the input
+        tokens = tokenizer(input_text, return_tensors="pt", padding=True)
+        
+        # Get the position of the first [SEP] token
+        sep_pos = (tokens.input_ids == tokenizer.sep_token_id).nonzero()[0, 1].item()
+        
+        # Create token_type_ids
+        token_type_ids = torch.zeros_like(tokens.input_ids)
+        token_type_ids[0, sep_pos+1:] = 1  # Set to 1 after the first [SEP] token
+        
+        # Update the tokens dictionary
+        tokens['token_type_ids'] = token_type_ids
+        
+        return tokens
+
+    if type(text) == list:
+        if type(text[0]) == str:
+            tokens = text
+            ids = sentiment_model_tokenizer.convert_tokens_to_ids(tokens)
+            text = sentiment_model_tokenizer.decode(ids[1:-1])
+        elif type(text[0]) == int:
+            ids = text
+            text = sentiment_model_tokenizer.decode(ids[1:-1])
+
+    if dataset == "sst_2":
+        inputs = sentiment_model_tokenizer(text, max_length=512, truncation=True, return_tensors="pt").to(device)
+    elif dataset == "qnli":
+        inputs = tokenize_with_correct_token_type_ids(text, sentiment_model_tokenizer).to(device)
+
+    logits = sentiment_model(**inputs).logits
+    prob_positive = torch.nn.functional.softmax(logits, dim=1)[0][1].item()
+    return prob_positive
+
 def generate_closs_counterfactual(text, args):
     counterfactual_text = generate_counterfactual(
         text,
         sentiment_model,
         LM_model,
+        calculate_score,
         sentiment_model_tokenizer,
         all_word_embeddings,
         device,
@@ -51,25 +87,25 @@ def generate_closs_counterfactual(text, args):
     return counterfactual_text
 
 def main():
-    text = "I thought the movie was terrible and one of the worst I've ever seen."
+    text = "The film was really bad."
     print(f"Original text: {text}")
-
-    args = {
-        "beam_width": 15,
-        "w": 5,
-        "K": 30,
-        "substitution_evaluation_method": "hotflip_only",
-        "substitution_gen_method": "hotflip_only"
-    }
 
     # args = {
     #     "beam_width": 15,
     #     "w": 5,
     #     "K": 30,
-    #     "substitution_evaluation_method": "SVs",
-    #     "substitution_gen_method": "no_opt_lmh"
+    #     "substitution_evaluation_method": "hotflip_only",
+    #     "substitution_gen_method": "hotflip_only",
+    #     "dataset": "sst_2"
     # }
-
+    args = {
+        "beam_width": 15,
+        "w": 5,
+        "K": 30,
+        "substitution_evaluation_method": "SVs",
+        "substitution_gen_method": "no_opt_lmh",
+        "dataset": "sst_2"
+    }
     counterfactual_text = generate_closs_counterfactual(text, args)
     print(f"counterfactual_text: {counterfactual_text}")
 

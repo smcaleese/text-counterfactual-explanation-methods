@@ -158,19 +158,20 @@ def generate_flip(sentiment_model, LM_model, calculate_score, dataset, tokenizer
     
     # Run HotFlip:
     if substitution_evaluation_method in ['hotflip_only']:
-        best_candidate_tokens, extra_evals = hotflip_beamsearch(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, topk, flip_target, prob_pos, tokens, n_tokens, device)
+        best_candidate_tokens, extra_evals = hotflip_beamsearch(all_word_embeddings, sentiment_model, calculate_score, tokenizer, dataset, loss_fct, beam_width, tree_depth, prob_left_early_stopping, topk, flip_target, prob_pos, tokens, n_tokens, device)
         model_evals += extra_evals
         substitution_end_time = time.time()
         
     if substitution_evaluation_method in ['hotflip']:
-        best_candidate_tokens, extra_evals = hotflip_beamsearch_substitutions(all_word_embeddings, sentiment_model, tokenizer, loss_fct, beam_width, tree_depth, prob_left_early_stopping, flip_target, prob_pos, tokens, n_tokens, substitutions_dict, device)
+        best_candidate_tokens, extra_evals = hotflip_beamsearch_substitutions(all_word_embeddings, sentiment_model, calculate_score, tokenizer, dataset, loss_fct, beam_width, tree_depth, prob_left_early_stopping, flip_target, prob_pos, tokens, n_tokens, substitutions_dict, device)
         model_evals += extra_evals
         substitution_end_time = time.time()
     
     if substitution_evaluation_method in ['SVs', 'grad-only', 'grad_only']:
 
         # Find the most impactful locations in the original text to perform substitutions via gradients.
-        logit_grads, extra_evals = get_saliency(sentiment_model, tokenizer, prob_pos, flip_target, tokens, ids, saliency_method, loss_fct, device)
+        # TODO: fix this for CLOSS
+        logit_grads, extra_evals = get_saliency(sentiment_model, calculate_score, tokenizer, prob_pos, flip_target, tokens, ids, saliency_method, loss_fct, device)
         model_evals += extra_evals
 
         with torch.no_grad():
