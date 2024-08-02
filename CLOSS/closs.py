@@ -224,7 +224,7 @@ def generate_flip(sentiment_model, LM_model, calculate_score, dataset, tokenizer
                         
                         replacement_inner_indicies.append(inner_index)
                         eval_tokens[s] = replacement_options[inner_index][0]
-                    SV_eval_prob_pos = calculate_score(text, tokenizer, dataset, device)
+                    SV_eval_prob_pos = calculate_score(eval_tokens, tokenizer, dataset, device)
                     model_evals += 1
                     SV_eval_prob_gain = pp_to_pg(flip_target, prob_pos, SV_eval_prob_pos)
                     for j in range(len(replacement_inner_indicies)):
