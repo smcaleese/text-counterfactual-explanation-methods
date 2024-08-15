@@ -88,16 +88,13 @@ def generate_closs_counterfactual(text, args):
 
 def main():
     df_input = pd.read_csv(f"input/sst-input.csv")
-    # text = df_input.iloc[0]["original_text"]
-    # text = "I really loved the movie."
-    # text = "I thought the movie was terrible and one of the worst I've ever seen."
-    text = "One of the worst movies of all time. I really wouldn't want to watch it every again."
-    print(f"Original text: {text}")
+    print(f"df_input size: {df_input.shape}")
 
     # args = {
     #     "beam_width": 15,
     #     "w": 5,
     #     "K": 30,
+    #     "tree_depth": 0.3,
     #     "substitution_evaluation_method": "hotflip_only",
     #     "substitution_gen_method": "hotflip_only",
     #     "dataset": "sst_2"
@@ -107,12 +104,19 @@ def main():
         "beam_width": 15,
         "w": 5,
         "K": 30,
-        "substitution_evaluation_method": "SVs",
+        "tree_depth": 0.9,
+        "substitutions_after_loc": 0.15,
+        # "substitution_evaluation_method": "SVs",
+        "substitution_evaluation_method": "grad_only",
         "substitution_gen_method": "no_opt_lmh",
         "dataset": "sst_2"
     }
 
+    text = "I really loved the movie because of the great acting and the amazing plot."
+
+    print(f"Text: {text}")
     counterfactual_text = generate_closs_counterfactual(text, args)
+    print(f"Counterfactual Text: {counterfactual_text}")
 
 if __name__ == "__main__":
     main()

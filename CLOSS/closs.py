@@ -334,7 +334,7 @@ def generate_flip(sentiment_model, LM_model, calculate_score, dataset, tokenizer
                             child_node_tokens[index_that_would_be_modified_by_possible_substitution] = token_being_substituted_into_child
                             
                             n_tokens_changed = len(child_node_indexes_modified)
-                            child_prob_pos = calculate_score(text, tokenizer, dataset, device)
+                            child_prob_pos = calculate_score(child_node_tokens, tokenizer, dataset, device)
                             model_evals += 1
                             child_prob_gain = pp_to_pg(flip_target, prob_pos, child_prob_pos)
                             child_prob_left = pp_to_pl(flip_target, child_prob_pos)
@@ -458,7 +458,7 @@ def generate_counterfactual(text, sentiment_model, LM_model, calculate_score, to
         "max_opt_steps": 1,
         "n_samples": args["K"],
         "topk": args["K"],
-        "substitutions_after_loc": 0.15,
+        "substitutions_after_loc": args["substitutions_after_loc"] if "substitutions_after_loc" in args else 0.15,
         "substitutions_after_SVs": 10,
         "min_substitutions_after_SVs": 50,
         "use_hard_scoring": True,
