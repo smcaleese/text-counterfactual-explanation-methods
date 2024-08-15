@@ -265,6 +265,7 @@ def hotflip_beamsearch(all_word_embeddings, sentiment_model, calculate_score, to
         potential_substitutions = sorted(potential_substitutions, key=lambda x: x[3], reverse=True)[:beam_width]
         #print(potential_substitutions)
         #print('\n', potential_substitutions)
+        # in the beam search, each level is a position and each branch is a possible substitution
         for s in potential_substitutions:
             c_num = s[1]
             parent_in_beam = beam[c_num]

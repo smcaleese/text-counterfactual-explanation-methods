@@ -371,7 +371,7 @@ def generate_flip(sentiment_model, LM_model, calculate_score, dataset, tokenizer
     # Print diagnostic information and return the results of counterfactual generation:
     if not substitution_evaluation_method in ['SVs']:
         beam_start_time = beam_end_time = 0
-    input_tokens_prob_pos = calculate_score(text, tokenizer, dataset, device)
+    input_tokens_prob_pos = calculate_score(best_candidate_tokens, tokenizer, dataset, device)
 
     print("Final eval prob pos:", input_tokens_prob_pos)
     model_evals += 1
@@ -473,7 +473,7 @@ def generate_counterfactual(text, sentiment_model, LM_model, calculate_score, to
         "logit_matix_source": "prediction",
         "use_exact": False,
         "n_branches": args["beam_width"],
-        "tree_depth": 0.15,
+        "tree_depth": args["tree_depth"],
         "beam_width": args["beam_width"],
         "prob_left_early_stopping": 0.499999,
         "substitution_gen_method": args["substitution_gen_method"],
