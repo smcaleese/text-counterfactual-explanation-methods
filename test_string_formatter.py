@@ -1,5 +1,29 @@
 import unittest
-from string_formatter import format_sentence
+import re
+
+def format_sentence(sentence, dataset):
+    sentence = sentence.lower()
+
+    # remove two spaces around a comma:
+    sentence = re.sub(r"\s(')\s(ve|re|s|t|ll|d)", r"\1\2", sentence)
+
+    # remove spaces around hyphens:
+    sentence = re.sub(r"-\s-", "--", sentence)
+    sentence = re.sub(r"(\w)\s-\s(\w)", r"\1-\2", sentence)
+
+    def replace(match):
+        return match.group(1)
+
+    # remove spaces before punctuation and n't:
+    sentence = re.sub(r"\s([.!,?:;')]|n't)", replace, sentence)
+
+    # remove spaces after opening parenthesis:
+    sentence = re.sub(r"([(])\s", replace, sentence)
+
+    if dataset == "qnli":
+        sentence = re.sub(r"\s(\[sep\])\s", " [SEP] ", sentence)
+    
+    return sentence
 
 class TestStringFormatter(unittest.TestCase):
     def test_format_sentence(self):
@@ -29,9 +53,10 @@ class TestStringFormatter(unittest.TestCase):
             ("here 's", "here's")
         ]
 
+        dataset = "sst_2"
         for input_string, expected_output in test_cases:
             with self.subTest(input=input_string):
-                result = format_sentence(input_string)
+                result = format_sentence(input_string, dataset)
                 self.assertEqual(result, expected_output)
 
 if __name__ == "__main__":

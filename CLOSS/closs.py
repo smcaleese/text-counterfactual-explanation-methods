@@ -170,7 +170,6 @@ def generate_flip(sentiment_model, LM_model, calculate_score, dataset, tokenizer
     if substitution_evaluation_method in ['SVs', 'grad-only', 'grad_only']:
 
         # Find the most impactful locations in the original text to perform substitutions via gradients.
-        # TODO: fix this for CLOSS
         logit_grads, extra_evals = get_saliency(sentiment_model, calculate_score, tokenizer, prob_pos, flip_target, tokens, ids, saliency_method, loss_fct, device)
         model_evals += extra_evals
 
@@ -194,9 +193,11 @@ def generate_flip(sentiment_model, LM_model, calculate_score, dataset, tokenizer
             all_SVs = []
                 
 
+            # this line determines the number of substitutions locations to generate:
             n_substitutions_after_location_SVs = max(int(substitutions_after_loc * n_tokens), 2)
             n_substitutions_after_location_SVs = min(n_substitutions_after_location_SVs, len(substitutions_locs_values) - 2)
             substitutions_locs_values = sorted(substitutions_locs_values, key=lambda x: x[1], reverse=True)
+            # only allow substitutions at locations where the importance of the token is greater than this threshold:
             location_score_cutoff = substitutions_locs_values[n_substitutions_after_location_SVs][1]
             
             # Compute approximate SV values for each substitution:
@@ -235,6 +236,7 @@ def generate_flip(sentiment_model, LM_model, calculate_score, dataset, tokenizer
                         substitutions_dict[s]['replacement_scores'][inner_index][5].append(SV_eval_prob_gain)
                         substitutions_dict[s]['replacement_scores'][inner_index][6] += 1
 
+                # at index 8, sum the Shapley values from index 6
                 for i in range(1, n_tokens - 1):
                     replacement_options = substitutions_dict[i]['replacement_scores']
                     for j in range(len(replacement_options)):
@@ -355,7 +357,7 @@ def generate_flip(sentiment_model, LM_model, calculate_score, dataset, tokenizer
                                 break
                     cutoff = min(len(next_level_counterfactuals), beam_width)
                     next_level_counterfactuals = sorted(next_level_counterfactuals, key=lambda x: x[3], reverse=True)[:cutoff]
-                    current_level_counterfactuals = next_level_counterfactuals        
+                    current_level_counterfactuals = next_level_counterfactuals
             
                 best_node = []
                 for generated_counterfactual in counterfactuals_generated:
@@ -418,23 +420,6 @@ def generate_flip(sentiment_model, LM_model, calculate_score, dataset, tokenizer
     if prob_left < 0.5:
         found_flip = True
     return sameness_list, found_flip, frac_tokens_same, -1, -1, tokenizer.convert_tokens_to_string(best_candidate_tokens), tokens, best_candidate_tokens, [0, 0, opt_end_time - opt_start_time, substitution_end_time - substitution_start_time, beam_end_time - beam_start_time], model_evals
-
-
-def format_output_text(text):
-    """After the tokens have been converted to a string, this function formats the text to be more readable."""
-
-    # Removing the special tokens [CLS] and [SEP]
-    sentence = text[6:-6]
-    
-    # Handling spaces around punctuation
-    sentence = sentence.replace(" ' ", "'").replace(" - ", "-")
-
-    # capitalize each sentence and each "i"
-    sentence = ". ".join([s.capitalize() for s in sentence.split(". ")])
-    sentence = sentence.replace(" i ", " I ")
-
-    return sentence
-
 
 def generate_counterfactual(text, sentiment_model, LM_model, calculate_score, tokenizer, all_word_embeddings, device, args):
     id_list = tokenizer.encode(text, add_special_tokens=True, truncation=True)
